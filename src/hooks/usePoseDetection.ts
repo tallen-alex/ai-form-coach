@@ -205,7 +205,7 @@ export function usePoseDetection(
               } else if (shoulderHipDist < 0.25) {
                 newFeedback = "Don't shrug — keep shoulders down";
                 newType = "correction";
-              } else if (wristDev > 0.06) {
+              } else if (wristDev > 0.09) {
                 newFeedback = "Straighten your wrist";
                 newType = "correction";
               } else if (angle >= 60 && angle < 90) {
