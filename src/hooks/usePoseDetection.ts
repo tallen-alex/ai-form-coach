@@ -33,17 +33,21 @@ export function usePoseDetection(
   const [feedbackType, setFeedbackType] = useState<FeedbackType>("neutral");
   const [isDetecting, setIsDetecting] = useState(false);
 
-  const stateRef = useRef<"up" | "down">("up");
+  const leftPhaseRef = useRef<"up" | "down">("up");
+  const rightPhaseRef = useRef<"up" | "down">("up");
   const animFrameRef = useRef<number | null>(null);
   const poseRef = useRef<any>(null);
   const cameraRef = useRef<any>(null);
+  const lastFeedbackTimeRef = useRef<number>(0);
 
   const resetState = useCallback(() => {
     setReps(0);
     setFeedback("Position yourself in frame");
     setFeedbackType("neutral");
     setIsDetecting(false);
-    stateRef.current = "up";
+    leftPhaseRef.current = "up";
+    rightPhaseRef.current = "up";
+    lastFeedbackTimeRef.current = 0;
   }, []);
 
   useEffect(() => {
@@ -109,28 +113,62 @@ export function usePoseDetection(
           const lm = results.poseLandmarks;
           const leftAngle = angleBetween(lm[11], lm[13], lm[15]);
           const rightAngle = angleBetween(lm[12], lm[14], lm[16]);
-          const avgAngle = (leftAngle + rightAngle) / 2;
 
-          if (avgAngle < 60 && stateRef.current === "up") {
-            stateRef.current = "down";
-          } else if (avgAngle > 140 && stateRef.current === "down") {
-            stateRef.current = "up";
+          // Independent per-arm rep counting
+          if (leftAngle < 60 && leftPhaseRef.current === "up") {
+            leftPhaseRef.current = "down";
+          } else if (leftAngle > 150 && leftPhaseRef.current === "down") {
+            leftPhaseRef.current = "up";
             setReps((prev) => prev + 1);
           }
 
-          const angleDiff = Math.abs(leftAngle - rightAngle);
-          if (angleDiff > 30) {
-            setFeedback("Keep both arms even");
-            setFeedbackType("negative");
-          } else if (avgAngle < 60) {
-            setFeedback("Great squeeze!");
-            setFeedbackType("positive");
-          } else if (avgAngle > 140) {
-            setFeedback("Full extension — nice!");
-            setFeedbackType("positive");
-          } else {
-            setFeedback("Keep curling!");
-            setFeedbackType("neutral");
+          if (rightAngle < 60 && rightPhaseRef.current === "up") {
+            rightPhaseRef.current = "down";
+          } else if (rightAngle > 150 && rightPhaseRef.current === "down") {
+            rightPhaseRef.current = "up";
+            setReps((prev) => prev + 1);
+          }
+
+          // Throttled feedback (1500ms)
+          const now = Date.now();
+          if (now - lastFeedbackTimeRef.current >= 1500) {
+            let newFeedback = "";
+            let newType: FeedbackType = "neutral";
+
+            // Priority: elbow flare → wrist deviation → shoulder shrug → range of motion
+            const lElbowFlare = Math.abs(lm[13].x - lm[11].x);
+            const rElbowFlare = Math.abs(lm[14].x - lm[12].x);
+            const lWristDev = Math.abs(lm[15].x - lm[13].x);
+            const rWristDev = Math.abs(lm[16].x - lm[14].x);
+            const lShoulderHipDist = Math.abs(lm[11].y - lm[23].y);
+            const rShoulderHipDist = Math.abs(lm[12].y - lm[24].y);
+
+            if (lElbowFlare > 0.08 || rElbowFlare > 0.08) {
+              newFeedback = "Keep your elbow tucked in";
+              newType = "negative";
+            } else if (lWristDev > 0.06 || rWristDev > 0.06) {
+              newFeedback = "Straighten your wrist";
+              newType = "negative";
+            } else if (lShoulderHipDist < 0.25 || rShoulderHipDist < 0.25) {
+              newFeedback = "Don't shrug — keep shoulders down";
+              newType = "negative";
+            } else {
+              const avgAngle = (leftAngle + rightAngle) / 2;
+              if (avgAngle < 60) {
+                newFeedback = "Great squeeze!";
+                newType = "positive";
+              } else if (avgAngle > 150) {
+                newFeedback = "Full extension — nice!";
+                newType = "positive";
+              } else {
+                newFeedback = "Keep curling!";
+                newType = "neutral";
+              }
+            }
+
+            setFeedback(newFeedback);
+            setFeedbackType(newType);
+            lastFeedbackTimeRef.current = now;
           }
 
           setIsDetecting(true);
