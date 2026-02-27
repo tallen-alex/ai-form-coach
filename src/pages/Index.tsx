@@ -4,16 +4,19 @@ import ExerciseSelection, { type Exercise } from "@/components/ExerciseSelection
 import RepCounter from "@/components/RepCounter";
 import FeedbackCard from "@/components/FeedbackCard";
 import { usePoseDetection } from "@/hooks/usePoseDetection";
+import { Switch } from "@/components/ui/switch";
 
 const Index = () => {
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [showOverlay, setShowOverlay] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const { reps, feedback, feedbackType } = usePoseDetection(
     videoRef,
     canvasRef,
-    selectedExercise?.id ?? null
+    selectedExercise?.id ?? null,
+    showOverlay
   );
 
   const handleBack = () => {
@@ -55,7 +58,17 @@ const Index = () => {
           </h1>
         </div>
 
-        <div className="w-9" /> {/* spacer */}
+        <div className="flex items-center gap-2">
+          <label htmlFor="debug-overlay" className="text-xs text-muted-foreground font-medium">
+            Debug
+          </label>
+          <Switch
+            id="debug-overlay"
+            checked={showOverlay}
+            onCheckedChange={setShowOverlay}
+            className="scale-75"
+          />
+        </div>
       </div>
 
       {/* Rep counter */}

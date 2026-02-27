@@ -26,7 +26,8 @@ function angleBetween(
 export function usePoseDetection(
   videoRef: React.RefObject<HTMLVideoElement>,
   canvasRef: React.RefObject<HTMLCanvasElement>,
-  selectedExerciseId: string | null
+  selectedExerciseId: string | null,
+  showOverlay: boolean = true
 ): PoseDetectionResult {
   const [reps, setReps] = useState(0);
   const [feedback, setFeedback] = useState("Position yourself in frame");
@@ -40,6 +41,8 @@ export function usePoseDetection(
   const lastFeedbackTimeRef = useRef<number>(0);
   const baselineElbowXRef = useRef<number | null>(null);
   const hasCountedFirstRepRef = useRef(false);
+  const hasCurlStartedRef = useRef(false);
+  const showOverlayRef = useRef(showOverlay);
 
   const resetState = useCallback(() => {
     setReps(0);
@@ -50,7 +53,13 @@ export function usePoseDetection(
     lastFeedbackTimeRef.current = 0;
     baselineElbowXRef.current = null;
     hasCountedFirstRepRef.current = false;
+    hasCurlStartedRef.current = false;
   }, []);
+
+  // Keep showOverlayRef in sync without re-running the effect
+  useEffect(() => {
+    showOverlayRef.current = showOverlay;
+  }, [showOverlay]);
 
   useEffect(() => {
     if (!selectedExerciseId) {
@@ -102,15 +111,18 @@ export function usePoseDetection(
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (results.poseLandmarks) {
-          drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
-            color: "rgba(0, 255, 128, 0.4)",
-            lineWidth: 2,
-          });
-          drawLandmarks(ctx, results.poseLandmarks, {
-            color: "rgba(0, 255, 128, 0.8)",
-            lineWidth: 1,
-            radius: 3,
-          });
+          // Only draw overlay when enabled
+          if (showOverlayRef.current) {
+            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
+              color: "rgba(0, 255, 128, 0.4)",
+              lineWidth: 2,
+            });
+            drawLandmarks(ctx, results.poseLandmarks, {
+              color: "rgba(0, 255, 128, 0.8)",
+              lineWidth: 1,
+              radius: 3,
+            });
+          }
 
           const lm = results.poseLandmarks;
 
@@ -145,6 +157,11 @@ export function usePoseDetection(
 
           const angle = angleBetween(shoulder, elbow, wrist);
 
+          // Track when user has meaningfully started curling
+          if (!hasCurlStartedRef.current && angle < 140) {
+            hasCurlStartedRef.current = true;
+          }
+
           // Rep counting: down (>150) -> up (<60) -> down (>150) = 1 rep
           if (angle < 60 && phaseRef.current === "down") {
             phaseRef.current = "up";
@@ -165,8 +182,8 @@ export function usePoseDetection(
             let newFeedback = "";
             let newType: FeedbackType = "neutral";
 
-            // Pre-first-rep guidance
-            if (!hasCountedFirstRepRef.current) {
+            // Pre-curl guidance (before user has started curling)
+            if (!hasCurlStartedRef.current) {
               newFeedback = "Stand slightly side-on and keep your lifting arm clearly visible to begin";
               newType = "neutral";
             }
