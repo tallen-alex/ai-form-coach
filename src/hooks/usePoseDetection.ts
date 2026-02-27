@@ -27,6 +27,12 @@ const POSE_CONNECTIONS: [number, number][] = [
   [15, 17], [15, 19], [16, 18], [16, 20],
 ];
 
+// MediaPipe landmark indices
+// 11 = left shoulder, 12 = right shoulder
+// 13 = left elbow,    14 = right elbow
+// 15 = left wrist,    16 = right wrist
+// 23 = left hip,      24 = right hip
+
 function angleBetween(a: Landmark, b: Landmark, c: Landmark): number {
   const ab = { x: a.x - b.x, y: a.y - b.y };
   const cb = { x: c.x - b.x, y: c.y - b.y };
@@ -36,6 +42,14 @@ function angleBetween(a: Landmark, b: Landmark, c: Landmark): number {
   const cosAngle = dot / (magAB * magCB + 1e-6);
   return Math.acos(Math.max(-1, Math.min(1, cosAngle))) * (180 / Math.PI);
 }
+
+// Bicep curl thresholds
+// Elbow angle at full extension (arm down) ~ 160-180 degrees
+// Elbow angle at full curl (arm up)        ~ 30-50 degrees
+const CURL_DOWN_ANGLE = 150; // arm is considered "down" / extended
+const CURL_UP_ANGLE = 60;    // arm is considered "up" / curled
+const ELBOW_FLARE_THRESHOLD = 0.08; // how far elbow can drift sideways from shoulder
+const WRIST_DEVIATION_THRESHOLD = 0.06; // wrist should stay roughly aligned with elbow
 
 export function usePoseDetection(
   videoRef: React.RefObject<HTMLVideoElement | null>,
@@ -47,7 +61,10 @@ export function usePoseDetection(
     type: "neutral",
   });
   const [isLoading, setIsLoading] = useState(true);
-  const posePhase = useRef<"up" | "down">("up");
+
+  // Track phase per arm independently
+  const leftPhase = useRef<"up" | "down">("down");
+  const rightPhase = useRef<"up" | "down">("down");
   const lastFeedbackTime = useRef(0);
   const poseRef = useRef<any>(null);
   const cameraRef = useRef<any>(null);
@@ -90,57 +107,122 @@ export function usePoseDetection(
   const analyzePose = useCallback(
     (landmarks: Landmark[]) => {
       const now = Date.now();
-      // Analyze squat-like movement using hip-knee-ankle angle
-      const lHip = landmarks[23];
-      const lKnee = landmarks[25];
-      const lAnkle = landmarks[27];
-      const rHip = landmarks[24];
-      const rKnee = landmarks[26];
-      const rAnkle = landmarks[28];
+
+      // Landmarks for bicep curl
       const lShoulder = landmarks[11];
       const rShoulder = landmarks[12];
+      const lElbow = landmarks[13];
+      const rElbow = landmarks[14];
+      const lWrist = landmarks[15];
+      const rWrist = landmarks[16];
+      const lHip = landmarks[23];
+      const rHip = landmarks[24];
 
-      if (!lHip || !lKnee || !lAnkle || !rHip || !rKnee || !rAnkle) return;
+      // Need at least one arm visible
+      const leftVisible =
+        lShoulder && lElbow && lWrist &&
+        (lShoulder.visibility ?? 0) > 0.5 &&
+        (lElbow.visibility ?? 0) > 0.5 &&
+        (lWrist.visibility ?? 0) > 0.5;
 
-      const leftKneeAngle = angleBetween(lHip, lKnee, lAnkle);
-      const rightKneeAngle = angleBetween(rHip, rKnee, rAnkle);
-      const avgKneeAngle = (leftKneeAngle + rightKneeAngle) / 2;
+      const rightVisible =
+        rShoulder && rElbow && rWrist &&
+        (rShoulder.visibility ?? 0) > 0.5 &&
+        (rElbow.visibility ?? 0) > 0.5 &&
+        (rWrist.visibility ?? 0) > 0.5;
 
-      // Rep counting (squat detection)
-      if (avgKneeAngle < 100 && posePhase.current === "up") {
-        posePhase.current = "down";
-      } else if (avgKneeAngle > 160 && posePhase.current === "down") {
-        posePhase.current = "up";
-        setRepCount((prev) => prev + 1);
+      if (!leftVisible && !rightVisible) return;
+
+      // Calculate elbow angles (shoulder - elbow - wrist)
+      const leftElbowAngle = leftVisible
+        ? angleBetween(lShoulder, lElbow, lWrist)
+        : null;
+      const rightElbowAngle = rightVisible
+        ? angleBetween(rShoulder, rElbow, rWrist)
+        : null;
+
+      // ── Rep counting ──────────────────────────────────────────────────────
+      // Count a rep when arm goes from "down" (extended) to "up" (curled) and back
+
+      if (leftElbowAngle !== null) {
+        if (leftElbowAngle > CURL_DOWN_ANGLE && leftPhase.current === "up") {
+          leftPhase.current = "down";
+        } else if (leftElbowAngle < CURL_UP_ANGLE && leftPhase.current === "down") {
+          leftPhase.current = "up";
+          setRepCount((prev) => prev + 1);
+        }
       }
 
-      // Feedback (throttled)
-      if (now - lastFeedbackTime.current > 2000) {
-        lastFeedbackTime.current = now;
-
-        // Check shoulder alignment
-        if (lShoulder && rShoulder) {
-          const shoulderDiff = Math.abs(lShoulder.y - rShoulder.y);
-          if (shoulderDiff > 0.05) {
-            setFeedback({ message: "Keep shoulders level", type: "negative" });
-            return;
-          }
+      if (rightElbowAngle !== null) {
+        if (rightElbowAngle > CURL_DOWN_ANGLE && rightPhase.current === "up") {
+          rightPhase.current = "down";
+        } else if (rightElbowAngle < CURL_UP_ANGLE && rightPhase.current === "down") {
+          rightPhase.current = "up";
+          setRepCount((prev) => prev + 1);
         }
+      }
 
-        // Check knee angle symmetry
-        const kneeDiff = Math.abs(leftKneeAngle - rightKneeAngle);
-        if (kneeDiff > 15) {
-          setFeedback({ message: "Even out your stance", type: "negative" });
+      // ── Form feedback (throttled to every 1.5s) ───────────────────────────
+      if (now - lastFeedbackTime.current < 1500) return;
+      lastFeedbackTime.current = now;
+
+      // 1. Check for elbow flare — elbow should stay close to the body
+      //    Elbow x should roughly align with shoulder x (small horizontal drift)
+      if (leftVisible && lHip) {
+        const elbowFlare = Math.abs(lElbow.x - lShoulder.x);
+        if (elbowFlare > ELBOW_FLARE_THRESHOLD) {
+          setFeedback({ message: "Keep your left elbow tucked in", type: "negative" });
           return;
         }
-
-        if (avgKneeAngle < 100) {
-          setFeedback({ message: "Full range of motion 💪", type: "positive" });
-        } else if (avgKneeAngle > 120 && avgKneeAngle < 160) {
-          setFeedback({ message: "Go deeper for full rep", type: "negative" });
-        } else {
-          setFeedback({ message: "Good form — keep going!", type: "positive" });
+      }
+      if (rightVisible && rHip) {
+        const elbowFlare = Math.abs(rElbow.x - rShoulder.x);
+        if (elbowFlare > ELBOW_FLARE_THRESHOLD) {
+          setFeedback({ message: "Keep your right elbow tucked in", type: "negative" });
+          return;
         }
+      }
+
+      // 2. Check for wrist deviation — wrist should stay aligned with elbow
+      //    Prevents wrist curling or excessive deviation
+      if (leftVisible) {
+        const wristDeviation = Math.abs(lWrist.x - lElbow.x);
+        if (wristDeviation > WRIST_DEVIATION_THRESHOLD) {
+          setFeedback({ message: "Straighten your left wrist", type: "negative" });
+          return;
+        }
+      }
+      if (rightVisible) {
+        const wristDeviation = Math.abs(rWrist.x - rElbow.x);
+        if (wristDeviation > WRIST_DEVIATION_THRESHOLD) {
+          setFeedback({ message: "Straighten your right wrist", type: "negative" });
+          return;
+        }
+      }
+
+      // 3. Check for shoulder shrugging — shoulder should not rise toward ear
+      //    Compare shoulder y to hip y — if shoulder rises significantly, flag it
+      if (leftVisible && lHip) {
+        const shoulderRise = lHip.y - lShoulder.y;
+        // In normalized coords, y increases downward. If shoulder y is too high
+        // (small y value) relative to hip, the shoulder is shrugging.
+        if (shoulderRise < 0.25) {
+          setFeedback({ message: "Don't shrug — keep shoulders down", type: "negative" });
+          return;
+        }
+      }
+
+      // 4. Check range of motion — is the user curling fully?
+      const activeAngle = leftElbowAngle ?? rightElbowAngle ?? 180;
+
+      if (activeAngle > CURL_DOWN_ANGLE) {
+        setFeedback({ message: "Start curling 💪", type: "neutral" });
+      } else if (activeAngle < CURL_UP_ANGLE) {
+        setFeedback({ message: "Full curl! Great range 🔥", type: "positive" });
+      } else if (activeAngle > 100) {
+        setFeedback({ message: "Curl higher for full range", type: "negative" });
+      } else {
+        setFeedback({ message: "Good form — keep going!", type: "positive" });
       }
     },
     []
@@ -157,7 +239,6 @@ export function usePoseDetection(
     let mounted = true;
 
     const loadMediaPipe = async () => {
-      // Wait for MediaPipe scripts to load
       const waitForGlobal = (name: string, timeout = 10000): Promise<any> =>
         new Promise((resolve, reject) => {
           const start = Date.now();
