@@ -33,21 +33,23 @@ export function usePoseDetection(
   const [feedbackType, setFeedbackType] = useState<FeedbackType>("neutral");
   const [isDetecting, setIsDetecting] = useState(false);
 
-  const leftPhaseRef = useRef<"up" | "down">("up");
-  const rightPhaseRef = useRef<"up" | "down">("up");
+  const phaseRef = useRef<"up" | "down">("down");
   const animFrameRef = useRef<number | null>(null);
   const poseRef = useRef<any>(null);
   const cameraRef = useRef<any>(null);
   const lastFeedbackTimeRef = useRef<number>(0);
+  const baselineElbowXRef = useRef<number | null>(null);
+  const hasCountedFirstRepRef = useRef(false);
 
   const resetState = useCallback(() => {
     setReps(0);
-    setFeedback("Position yourself in frame");
+    setFeedback("Stand slightly side-on and keep your lifting arm clearly visible to begin");
     setFeedbackType("neutral");
     setIsDetecting(false);
-    leftPhaseRef.current = "up";
-    rightPhaseRef.current = "up";
+    phaseRef.current = "down";
     lastFeedbackTimeRef.current = 0;
+    baselineElbowXRef.current = null;
+    hasCountedFirstRepRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -111,22 +113,50 @@ export function usePoseDetection(
           });
 
           const lm = results.poseLandmarks;
-          const leftAngle = angleBetween(lm[11], lm[13], lm[15]);
-          const rightAngle = angleBetween(lm[12], lm[14], lm[16]);
 
-          // Independent per-arm rep counting
-          if (leftAngle < 60 && leftPhaseRef.current === "up") {
-            leftPhaseRef.current = "down";
-          } else if (leftAngle > 150 && leftPhaseRef.current === "down") {
-            leftPhaseRef.current = "up";
+          // Pick primary arm by average visibility
+          const leftVis = ((lm[11].visibility ?? 0) + (lm[13].visibility ?? 0) + (lm[15].visibility ?? 0)) / 3;
+          const rightVis = ((lm[12].visibility ?? 0) + (lm[14].visibility ?? 0) + (lm[16].visibility ?? 0)) / 3;
+          const isLeft = leftVis >= rightVis;
+
+          const shoulder = isLeft ? lm[11] : lm[12];
+          const elbow = isLeft ? lm[13] : lm[14];
+          const wrist = isLeft ? lm[15] : lm[16];
+          const hip = isLeft ? lm[23] : lm[24];
+
+          // Confidence check
+          const minVis = Math.min(
+            shoulder.visibility ?? 0,
+            elbow.visibility ?? 0,
+            wrist.visibility ?? 0,
+            hip.visibility ?? 0
+          );
+
+          if (minVis <= 0.5) {
+            const now = Date.now();
+            if (now - lastFeedbackTimeRef.current >= 1500) {
+              setFeedback("Make sure your side profile and lifting arm are clearly visible");
+              setFeedbackType("neutral");
+              lastFeedbackTimeRef.current = now;
+            }
+            setIsDetecting(false);
+            return;
+          }
+
+          const angle = angleBetween(shoulder, elbow, wrist);
+
+          // Rep counting: down (>150) -> up (<60) -> down (>150) = 1 rep
+          if (angle < 60 && phaseRef.current === "down") {
+            phaseRef.current = "up";
+          } else if (angle > 150 && phaseRef.current === "up") {
+            phaseRef.current = "down";
+            hasCountedFirstRepRef.current = true;
             setReps((prev) => prev + 1);
           }
 
-          if (rightAngle < 60 && rightPhaseRef.current === "up") {
-            rightPhaseRef.current = "down";
-          } else if (rightAngle > 150 && rightPhaseRef.current === "down") {
-            rightPhaseRef.current = "up";
-            setReps((prev) => prev + 1);
+          // Capture baseline elbow x when in starting down phase
+          if (phaseRef.current === "down" && angle > 150) {
+            baselineElbowXRef.current = elbow.x;
           }
 
           // Throttled feedback (1500ms)
@@ -135,34 +165,41 @@ export function usePoseDetection(
             let newFeedback = "";
             let newType: FeedbackType = "neutral";
 
-            // Priority: elbow flare → wrist deviation → shoulder shrug → range of motion
-            const lElbowFlare = Math.abs(lm[13].x - lm[11].x);
-            const rElbowFlare = Math.abs(lm[14].x - lm[12].x);
-            const lWristDev = Math.abs(lm[15].x - lm[13].x);
-            const rWristDev = Math.abs(lm[16].x - lm[14].x);
-            const lShoulderHipDist = Math.abs(lm[11].y - lm[23].y);
-            const rShoulderHipDist = Math.abs(lm[12].y - lm[24].y);
+            // Pre-first-rep guidance
+            if (!hasCountedFirstRepRef.current) {
+              newFeedback = "Stand slightly side-on and keep your lifting arm clearly visible to begin";
+              newType = "neutral";
+            }
+            // Priority: elbow drift → elbow flare → shoulder shrug → wrist dev → ROM → good
+            else {
+              const elbowDrift = baselineElbowXRef.current !== null
+                ? Math.abs(elbow.x - baselineElbowXRef.current)
+                : 0;
+              const elbowFlare = Math.abs(elbow.x - shoulder.x);
+              const shoulderHipDist = Math.abs(shoulder.y - hip.y);
+              const wristDev = Math.abs(wrist.x - elbow.x);
 
-            if (lElbowFlare > 0.08 || rElbowFlare > 0.08) {
-              newFeedback = "Keep your elbow tucked in";
-              newType = "negative";
-            } else if (lWristDev > 0.06 || rWristDev > 0.06) {
-              newFeedback = "Straighten your wrist";
-              newType = "negative";
-            } else if (lShoulderHipDist < 0.25 || rShoulderHipDist < 0.25) {
-              newFeedback = "Don't shrug — keep shoulders down";
-              newType = "negative";
-            } else {
-              const avgAngle = (leftAngle + rightAngle) / 2;
-              if (avgAngle < 60) {
+              if (elbowDrift > 0.06) {
+                newFeedback = "Keep your elbows pinned by your sides";
+                newType = "negative";
+              } else if (elbowFlare > 0.08) {
+                newFeedback = "Keep your elbow tucked in";
+                newType = "negative";
+              } else if (shoulderHipDist < 0.25) {
+                newFeedback = "Don't shrug — keep shoulders down";
+                newType = "negative";
+              } else if (wristDev > 0.06) {
+                newFeedback = "Straighten your wrist";
+                newType = "negative";
+              } else if (angle > 60 && angle < 150) {
+                newFeedback = "Keep curling — full range of motion!";
+                newType = "neutral";
+              } else if (angle < 60) {
                 newFeedback = "Great squeeze!";
                 newType = "positive";
-              } else if (avgAngle > 150) {
+              } else {
                 newFeedback = "Full extension — nice!";
                 newType = "positive";
-              } else {
-                newFeedback = "Keep curling!";
-                newType = "neutral";
               }
             }
 
@@ -173,7 +210,7 @@ export function usePoseDetection(
 
           setIsDetecting(true);
         } else {
-          setFeedback("Position yourself in frame");
+          setFeedback("Stand slightly side-on and keep your lifting arm clearly visible to begin");
           setFeedbackType("neutral");
           setIsDetecting(false);
         }
