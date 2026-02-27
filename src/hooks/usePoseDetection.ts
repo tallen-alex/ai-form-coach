@@ -6,6 +6,7 @@ interface PoseDetectionResult {
   feedback: string;
   feedbackType: FeedbackType;
   isDetecting: boolean;
+  invalidRep: boolean;
 }
 
 function angleBetween(
@@ -33,6 +34,7 @@ export function usePoseDetection(
   const [feedback, setFeedback] = useState("Position yourself in frame");
   const [feedbackType, setFeedbackType] = useState<FeedbackType>("neutral");
   const [isDetecting, setIsDetecting] = useState(false);
+  const [invalidRep, setInvalidRep] = useState(false);
 
   const phaseRef = useRef<"up" | "down">("down");
   const animFrameRef = useRef<number | null>(null);
@@ -43,17 +45,20 @@ export function usePoseDetection(
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
+  const formViolationRef = useRef(false);
 
   const resetState = useCallback(() => {
     setReps(0);
     setFeedback("Stand slightly side-on and keep your lifting arm clearly visible to begin");
     setFeedbackType("neutral");
     setIsDetecting(false);
+    setInvalidRep(false);
     phaseRef.current = "down";
     lastFeedbackTimeRef.current = 0;
     baselineElbowXRef.current = null;
     hasCountedFirstRepRef.current = false;
     hasCurlStartedRef.current = false;
+    formViolationRef.current = false;
   }, []);
 
   // Keep showOverlayRef in sync without re-running the effect
@@ -162,13 +167,46 @@ export function usePoseDetection(
             hasCurlStartedRef.current = true;
           }
 
+          // Form violation checks
+          const elbowDrift = baselineElbowXRef.current !== null
+            ? Math.abs(elbow.x - baselineElbowXRef.current)
+            : 0;
+          const elbowFlare = Math.abs(elbow.x - shoulder.x);
+          const shoulderHipDist = Math.abs(shoulder.y - hip.y);
+
+          const hasElbowDrift = elbowDrift > 0.05;
+          const hasElbowFlare = elbowFlare > 0.08;
+          const hasShoulderShrug = shoulderHipDist < 0.28;
+          const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasShoulderShrug;
+
+          // Track form violations during the current rep cycle
+          if (hasHighPriorityViolation && phaseRef.current === "up") {
+            formViolationRef.current = true;
+          }
+
           // Rep counting: down (>150) -> up (<60) -> down (>150) = 1 rep
           if (angle < 60 && phaseRef.current === "down") {
             phaseRef.current = "up";
+            // Reset violation tracking at the start of a new rep cycle
+            formViolationRef.current = false;
+            // Mark violation immediately if form is already bad at the top
+            if (hasHighPriorityViolation) {
+              formViolationRef.current = true;
+            }
           } else if (angle > 150 && phaseRef.current === "up") {
             phaseRef.current = "down";
-            hasCountedFirstRepRef.current = true;
-            setReps((prev) => prev + 1);
+            if (formViolationRef.current) {
+              // Invalid rep — don't count, show feedback
+              setInvalidRep(true);
+              setTimeout(() => setInvalidRep(false), 1200);
+              setFeedback("Rep not counted — fix your form");
+              setFeedbackType("correction");
+              lastFeedbackTimeRef.current = Date.now();
+            } else {
+              hasCountedFirstRepRef.current = true;
+              setReps((prev) => prev + 1);
+            }
+            formViolationRef.current = false;
           }
 
           // Capture baseline elbow x when in starting down phase
@@ -176,11 +214,13 @@ export function usePoseDetection(
             baselineElbowXRef.current = elbow.x;
           }
 
-          // Throttled feedback (1500ms)
+          // Throttled feedback (1500ms) — skip if we just showed invalid rep feedback
           const now = Date.now();
           if (now - lastFeedbackTimeRef.current >= 1500) {
             let newFeedback = "";
             let newType: FeedbackType = "neutral";
+
+            const wristDev = Math.abs(wrist.x - elbow.x);
 
             // Pre-curl guidance (before user has started curling)
             if (!hasCurlStartedRef.current) {
@@ -189,20 +229,13 @@ export function usePoseDetection(
             }
             // Priority: elbow drift → elbow flare → shoulder shrug → wrist dev → ROM → good
             else {
-              const elbowDrift = baselineElbowXRef.current !== null
-                ? Math.abs(elbow.x - baselineElbowXRef.current)
-                : 0;
-              const elbowFlare = Math.abs(elbow.x - shoulder.x);
-              const shoulderHipDist = Math.abs(shoulder.y - hip.y);
-              const wristDev = Math.abs(wrist.x - elbow.x);
-
-              if (elbowDrift > 0.06) {
+              if (hasElbowDrift) {
                 newFeedback = "Keep your elbows pinned by your sides";
                 newType = "correction";
-              } else if (elbowFlare > 0.08) {
+              } else if (hasElbowFlare) {
                 newFeedback = "Keep your elbow tucked in";
                 newType = "correction";
-              } else if (shoulderHipDist < 0.25) {
+              } else if (hasShoulderShrug) {
                 newFeedback = "Don't shrug — keep shoulders down";
                 newType = "correction";
               } else if (wristDev > 0.09) {
@@ -263,5 +296,5 @@ export function usePoseDetection(
     };
   }, [selectedExerciseId, videoRef, canvasRef, resetState]);
 
-  return { reps, feedback, feedbackType, isDetecting };
+  return { reps, feedback, feedbackType, isDetecting, invalidRep };
 }
