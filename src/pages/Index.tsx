@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
-import { ArrowLeft, Dumbbell } from "lucide-react";
+import { ArrowLeft, Dumbbell, X } from "lucide-react";
 import ExerciseSelection, { type Exercise } from "@/components/ExerciseSelection";
 import RepCounter from "@/components/RepCounter";
 import FeedbackCard from "@/components/FeedbackCard";
 import { usePoseDetection } from "@/hooks/usePoseDetection";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 const Index = () => {
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
@@ -12,7 +13,7 @@ const Index = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const { reps, feedback, feedbackType } = usePoseDetection(
+  const { reps, feedback, feedbackType, invalidRep } = usePoseDetection(
     videoRef,
     canvasRef,
     selectedExercise?.id ?? null,
@@ -71,9 +72,17 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Rep counter */}
-      <div className="relative z-10 mt-6 flex justify-center">
+      {/* Rep counter with invalid rep indicator */}
+      <div className="relative z-10 mt-6 flex flex-col items-center gap-2">
         <RepCounter count={reps} exercise={selectedExercise.repLabel} />
+        {invalidRep && (
+          <div className="animate-in fade-in zoom-in-95 duration-200 flex items-center gap-1.5">
+            <Badge variant="destructive" className="text-xs font-semibold px-3 py-1 gap-1">
+              <X className="h-3 w-3" />
+              Not Counted
+            </Badge>
+          </div>
+        )}
       </div>
 
       {/* Feedback */}
