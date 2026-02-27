@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ArrowLeft, Dumbbell, X } from "lucide-react";
+import { ArrowLeft, Check, Dumbbell, X } from "lucide-react";
 import ExerciseSelection, { type Exercise } from "@/components/ExerciseSelection";
 import RepCounter from "@/components/RepCounter";
 import FeedbackCard from "@/components/FeedbackCard";
@@ -13,7 +13,7 @@ const Index = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const { reps, feedback, feedbackType, invalidRep } = usePoseDetection(
+  const { reps, feedback, feedbackType, invalidRep, validRep } = usePoseDetection(
     videoRef,
     canvasRef,
     selectedExercise?.id ?? null,
@@ -80,6 +80,14 @@ const Index = () => {
             <Badge variant="destructive" className="text-xs font-semibold px-3 py-1 gap-1">
               <X className="h-3 w-3" />
               Not Counted
+            </Badge>
+          </div>
+        )}
+        {validRep && !invalidRep && (
+          <div className="animate-in fade-in zoom-in-95 duration-200 flex items-center gap-1.5">
+            <Badge className="text-xs font-semibold px-3 py-1 gap-1 border-transparent bg-positive/20 text-positive">
+              <Check className="h-3 w-3" />
+              Counted
             </Badge>
           </div>
         )}

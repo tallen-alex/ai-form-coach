@@ -7,6 +7,7 @@ interface PoseDetectionResult {
   feedbackType: FeedbackType;
   isDetecting: boolean;
   invalidRep: boolean;
+  validRep: boolean;
 }
 
 function angleBetween(
@@ -35,6 +36,7 @@ export function usePoseDetection(
   const [feedbackType, setFeedbackType] = useState<FeedbackType>("neutral");
   const [isDetecting, setIsDetecting] = useState(false);
   const [invalidRep, setInvalidRep] = useState(false);
+  const [validRep, setValidRep] = useState(false);
 
   const phaseRef = useRef<"up" | "down">("down");
   const animFrameRef = useRef<number | null>(null);
@@ -53,6 +55,7 @@ export function usePoseDetection(
     setFeedbackType("neutral");
     setIsDetecting(false);
     setInvalidRep(false);
+    setValidRep(false);
     phaseRef.current = "down";
     lastFeedbackTimeRef.current = 0;
     baselineElbowXRef.current = null;
@@ -205,6 +208,8 @@ export function usePoseDetection(
             } else {
               hasCountedFirstRepRef.current = true;
               setReps((prev) => prev + 1);
+              setValidRep(true);
+              setTimeout(() => setValidRep(false), 1200);
             }
             formViolationRef.current = false;
           }
@@ -296,5 +301,5 @@ export function usePoseDetection(
     };
   }, [selectedExerciseId, videoRef, canvasRef, resetState]);
 
-  return { reps, feedback, feedbackType, isDetecting, invalidRep };
+  return { reps, feedback, feedbackType, isDetecting, invalidRep, validRep };
 }
