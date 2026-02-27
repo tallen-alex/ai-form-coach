@@ -44,10 +44,14 @@ export function usePoseDetection(
   const cameraRef = useRef<any>(null);
   const lastFeedbackTimeRef = useRef<number>(0);
   const baselineElbowXRef = useRef<number | null>(null);
+  const baselineElbowShoulderDxRef = useRef<number | null>(null);
+  const baselineShoulderYRef = useRef<number | null>(null);
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
   const formViolationRef = useRef(false);
+  const lastViolationTypeRef = useRef<"elbowDrift" | "elbowFlare" | "shoulderShrug" | null>(null);
+  const repHadViolationRef = useRef(false);
 
   const resetState = useCallback(() => {
     setReps(0);
@@ -59,9 +63,13 @@ export function usePoseDetection(
     phaseRef.current = "down";
     lastFeedbackTimeRef.current = 0;
     baselineElbowXRef.current = null;
+    baselineElbowShoulderDxRef.current = null;
+    baselineShoulderYRef.current = null;
     hasCountedFirstRepRef.current = false;
     hasCurlStartedRef.current = false;
     formViolationRef.current = false;
+    lastViolationTypeRef.current = null;
+    repHadViolationRef.current = false;
   }, []);
 
   // Keep showOverlayRef in sync without re-running the effect
@@ -170,21 +178,28 @@ export function usePoseDetection(
             hasCurlStartedRef.current = true;
           }
 
-          // Form violation checks
-          const elbowDrift = baselineElbowXRef.current !== null
-            ? Math.abs(elbow.x - baselineElbowXRef.current)
-            : 0;
-          const elbowFlare = Math.abs(elbow.x - shoulder.x);
-          const shoulderHipDist = Math.abs(shoulder.y - hip.y);
+          // Form violation checks — baseline-relative
+          const baselineDx = baselineElbowShoulderDxRef.current;
+          const currentDx = Math.abs(elbow.x - shoulder.x);
+          const hasElbowDrift = baselineDx !== null && (currentDx - baselineDx) > 0.05;
 
-          const hasElbowDrift = elbowDrift > 0.05;
+          const elbowFlare = Math.abs(elbow.x - shoulder.x);
           const hasElbowFlare = elbowFlare > 0.08;
-          const hasShoulderShrug = shoulderHipDist < 0.28;
+
+          const hasShoulderShrug = baselineShoulderYRef.current !== null
+            ? (baselineShoulderYRef.current - shoulder.y) > 0.03
+            : false;
+
           const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasShoulderShrug;
 
           // Track form violations during the current rep cycle
-          if (hasHighPriorityViolation && phaseRef.current === "up") {
+          if (hasHighPriorityViolation) {
             formViolationRef.current = true;
+            repHadViolationRef.current = true;
+            // Track specific violation type (priority order)
+            if (hasElbowDrift) lastViolationTypeRef.current = "elbowDrift";
+            else if (hasElbowFlare) lastViolationTypeRef.current = "elbowFlare";
+            else if (hasShoulderShrug) lastViolationTypeRef.current = "shoulderShrug";
           }
 
           // Rep counting: down (>150) -> up (<60) -> down (>150) = 1 rep
@@ -192,9 +207,15 @@ export function usePoseDetection(
             phaseRef.current = "up";
             // Reset violation tracking at the start of a new rep cycle
             formViolationRef.current = false;
+            repHadViolationRef.current = false;
+            lastViolationTypeRef.current = null;
             // Mark violation immediately if form is already bad at the top
             if (hasHighPriorityViolation) {
               formViolationRef.current = true;
+              repHadViolationRef.current = true;
+              if (hasElbowDrift) lastViolationTypeRef.current = "elbowDrift";
+              else if (hasElbowFlare) lastViolationTypeRef.current = "elbowFlare";
+              else if (hasShoulderShrug) lastViolationTypeRef.current = "shoulderShrug";
             }
           } else if (angle > 150 && phaseRef.current === "up") {
             phaseRef.current = "down";
@@ -212,11 +233,15 @@ export function usePoseDetection(
               setTimeout(() => setValidRep(false), 1200);
             }
             formViolationRef.current = false;
+            repHadViolationRef.current = false;
+            lastViolationTypeRef.current = null;
           }
 
-          // Capture baseline elbow x when in starting down phase
+          // Capture baselines when in starting down phase
           if (phaseRef.current === "down" && angle > 150) {
             baselineElbowXRef.current = elbow.x;
+            baselineElbowShoulderDxRef.current = Math.abs(elbow.x - shoulder.x);
+            baselineShoulderYRef.current = shoulder.y;
           }
 
           // Throttled feedback (1500ms) — skip if we just showed invalid rep feedback
@@ -232,7 +257,7 @@ export function usePoseDetection(
               newFeedback = "Stand slightly side-on and keep your lifting arm clearly visible to begin";
               newType = "neutral";
             }
-            // Priority: elbow drift → elbow flare → shoulder shrug → wrist dev → ROM → good
+            // Priority: elbow drift → elbow flare → shoulder shrug → wrist dev → ROM → good/recovery
             else {
               if (hasElbowDrift) {
                 newFeedback = "Keep your elbows pinned by your sides";
@@ -249,6 +274,20 @@ export function usePoseDetection(
               } else if (angle >= 60 && angle < 90) {
                 newFeedback = "Curl a little higher for full range";
                 newType = "neutral";
+              } else if (repHadViolationRef.current && lastViolationTypeRef.current) {
+                // Violation was corrected mid-rep — show recovery message
+                newType = "neutral";
+                switch (lastViolationTypeRef.current) {
+                  case "elbowDrift":
+                    newFeedback = "Better — keep your elbows pinned";
+                    break;
+                  case "elbowFlare":
+                    newFeedback = "Better — keep your elbow tucked";
+                    break;
+                  case "shoulderShrug":
+                    newFeedback = "Better — keep shoulders down";
+                    break;
+                }
               } else if (angle < 60) {
                 newFeedback = "Great squeeze!";
                 newType = "positive";
