@@ -54,7 +54,8 @@ const WRIST_DEVIATION_THRESHOLD = 0.06; // wrist should stay roughly aligned wit
 
 export function usePoseDetection(
   videoRef: React.RefObject<HTMLVideoElement | null>,
-  canvasRef: React.RefObject<HTMLCanvasElement | null>
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  selectedExerciseId: string | null
 ) {
   const [repCount, setRepCount] = useState(0);
   const [feedback, setFeedback] = useState<FeedbackState>({
@@ -230,8 +231,22 @@ export function usePoseDetection(
   );
 
   useEffect(() => {
+    if (!selectedExerciseId) {
+      cameraRef.current?.stop();
+      poseRef.current?.close();
+      cameraRef.current = null;
+      poseRef.current = null;
+      leftPhase.current = "down";
+      rightPhase.current = "down";
+      setRepCount(0);
+      setFeedback({ message: "Get into position", type: "neutral" });
+      setIsLoading(false);
+      return;
+    }
+
     if (!videoRef.current || !canvasRef.current) return;
 
+    setIsLoading(true);
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
@@ -312,7 +327,7 @@ export function usePoseDetection(
       cameraRef.current?.stop();
       poseRef.current?.close();
     };
-  }, [videoRef, canvasRef, drawSkeleton, analyzePose]);
+  }, [selectedExerciseId, videoRef, canvasRef, drawSkeleton, analyzePose]);
 
   return { repCount, feedback, isLoading };
 }
