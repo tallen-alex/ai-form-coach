@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export type FeedbackType = "positive" | "negative" | "neutral";
+export type FeedbackType = "positive" | "negative" | "correction" | "neutral";
 
 interface FeedbackCardProps {
   message: string;
@@ -14,6 +14,7 @@ const FeedbackCard = ({ message, type }: FeedbackCardProps) => {
         "glass-card rounded-2xl px-6 py-4 transition-all duration-300 border",
         type === "positive" && "glow-positive",
         type === "negative" && "glow-negative",
+        type === "correction" && "glow-negative",
         type === "neutral" && "border-border"
       )}
     >
@@ -22,6 +23,7 @@ const FeedbackCard = ({ message, type }: FeedbackCardProps) => {
           "text-base font-medium font-heading text-center",
           type === "positive" && "text-positive",
           type === "negative" && "text-negative",
+          type === "correction" && "text-negative",
           type === "neutral" && "text-muted-foreground"
         )}
       >

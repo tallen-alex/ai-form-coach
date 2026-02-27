@@ -181,18 +181,18 @@ export function usePoseDetection(
 
               if (elbowDrift > 0.06) {
                 newFeedback = "Keep your elbows pinned by your sides";
-                newType = "negative";
+                newType = "correction";
               } else if (elbowFlare > 0.08) {
                 newFeedback = "Keep your elbow tucked in";
-                newType = "negative";
+                newType = "correction";
               } else if (shoulderHipDist < 0.25) {
                 newFeedback = "Don't shrug — keep shoulders down";
-                newType = "negative";
+                newType = "correction";
               } else if (wristDev > 0.06) {
                 newFeedback = "Straighten your wrist";
-                newType = "negative";
-              } else if (angle > 60 && angle < 150) {
-                newFeedback = "Keep curling — full range of motion!";
+                newType = "correction";
+              } else if (angle >= 60 && angle < 90) {
+                newFeedback = "Curl a little higher for full range";
                 newType = "neutral";
               } else if (angle < 60) {
                 newFeedback = "Great squeeze!";
