@@ -99,13 +99,21 @@ export function usePoseDetection(
     let cancelled = false;
 
     const loadPose = async () => {
-      const { Pose, POSE_CONNECTIONS } = await import("@mediapipe/pose");
-      const { Camera } = await import("@mediapipe/camera_utils");
-      const { drawConnectors, drawLandmarks } = await import("@mediapipe/drawing_utils");
+      // Use CDN globals (loaded via script tags in index.html)
+      const PoseClass = (window as any).Pose;
+      const poseConnections = (window as any).POSE_CONNECTIONS;
+      const CameraClass = (window as any).Camera;
+      const drawConnectorsFunc = (window as any).drawConnectors;
+      const drawLandmarksFunc = (window as any).drawLandmarks;
+
+      if (!PoseClass || !CameraClass) {
+        console.error("MediaPipe not loaded from CDN");
+        return;
+      }
 
       if (cancelled) return;
 
-      const pose = new Pose({
+      const pose = new PoseClass({
         locateFile: (file: string) =>
           `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
       });
@@ -129,11 +137,11 @@ export function usePoseDetection(
         if (results.poseLandmarks) {
           // Only draw overlay when enabled
           if (showOverlayRef.current) {
-            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
+            drawConnectorsFunc(ctx, results.poseLandmarks, poseConnections, {
               color: "rgba(0, 255, 128, 0.4)",
               lineWidth: 2,
             });
-            drawLandmarks(ctx, results.poseLandmarks, {
+            drawLandmarksFunc(ctx, results.poseLandmarks, {
               color: "rgba(0, 255, 128, 0.8)",
               lineWidth: 1,
               radius: 3,
@@ -312,7 +320,7 @@ export function usePoseDetection(
 
       poseRef.current = pose;
 
-      const camera = new Camera(video, {
+      const camera = new CameraClass(video, {
         onFrame: async () => {
           if (!cancelled) await pose.send({ image: video });
         },
