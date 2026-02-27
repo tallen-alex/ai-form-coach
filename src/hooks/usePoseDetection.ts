@@ -1,3 +1,4 @@
+// Custom React hook for pose detection and analysis using MediaPipe Pose
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { FeedbackType } from "@/components/FeedbackCard";
 
