@@ -46,11 +46,12 @@ export function usePoseDetection(
   const baselineElbowXRef = useRef<number | null>(null);
   const baselineElbowShoulderDxRef = useRef<number | null>(null);
   const baselineShoulderYRef = useRef<number | null>(null);
+  const baselineElbowZDiffRef = useRef<number | null>(null); // NEW: for forward elbow projection
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
   const formViolationRef = useRef(false);
-  const lastViolationTypeRef = useRef<"elbowDrift" | "elbowFlare" | "shoulderShrug" | null>(null);
+  const lastViolationTypeRef = useRef<"elbowDrift" | "elbowFlare" | "elbowForward" | "shoulderShrug" | null>(null);
   const repHadViolationRef = useRef(false);
 
   const resetState = useCallback(() => {
@@ -65,6 +66,7 @@ export function usePoseDetection(
     baselineElbowXRef.current = null;
     baselineElbowShoulderDxRef.current = null;
     baselineShoulderYRef.current = null;
+    baselineElbowZDiffRef.current = null; // NEW
     hasCountedFirstRepRef.current = false;
     hasCurlStartedRef.current = false;
     formViolationRef.current = false;
@@ -186,19 +188,35 @@ export function usePoseDetection(
             hasCurlStartedRef.current = true;
           }
 
-          // Form violation checks — baseline-relative
+          // Body scale: shoulder-to-hip distance normalizes thresholds for camera distance
+          const bodyScale = Math.abs(shoulder.y - hip.y) || 0.2; // fallback prevents division by zero
+
+          // --- FORM VIOLATION CHECKS ---
+
+          // Elbow drift: elbow moving away from body sideways vs baseline
           const baselineDx = baselineElbowShoulderDxRef.current;
           const currentDx = Math.abs(elbow.x - shoulder.x);
-          const hasElbowDrift = baselineDx !== null && (currentDx - baselineDx) > 0.05;
+          const hasElbowDrift = baselineDx !== null && (currentDx - baselineDx) / bodyScale > 0.15;
+          // TUNE ↑ raise toward 0.25 if triggering too often
 
-          const elbowFlare = Math.abs(elbow.x - shoulder.x);
-          const hasElbowFlare = elbowFlare > 0.08;
+          // Elbow flare: absolute sideways distance from shoulder, normalized
+          const hasElbowFlare = Math.abs(elbow.x - shoulder.x) / bodyScale > 0.35;
+          // TUNE ↑ raise toward 0.5 if triggering too often
 
+          // Elbow forward projection: elbow moving toward camera (Z-axis depth)
+          // MediaPipe Z is negative = closer to camera. Forward projection = elbow.z drops below shoulder.z
+          const baselineZDiff = baselineElbowZDiffRef.current;
+          const currentZDiff = elbow.z - shoulder.z;
+          const hasElbowForward = baselineZDiff !== null && (currentZDiff - baselineZDiff) < -0.12;
+          // TUNE ↑ make less negative (e.g. -0.08) if not triggering; more negative (e.g. -0.18) if too sensitive
+
+          // Shoulder shrug: shoulder rising above baseline, normalized
           const hasShoulderShrug = baselineShoulderYRef.current !== null
-            ? (baselineShoulderYRef.current - shoulder.y) > 0.03
+            ? (baselineShoulderYRef.current - shoulder.y) / bodyScale > 0.12
             : false;
+          // TUNE ↑ raise toward 0.2 if triggering too often on normal movement
 
-          const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasShoulderShrug;
+          const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasElbowForward || hasShoulderShrug;
 
           // Track form violations during the current rep cycle
           if (hasHighPriorityViolation) {
@@ -206,6 +224,7 @@ export function usePoseDetection(
             repHadViolationRef.current = true;
             // Track specific violation type (priority order)
             if (hasElbowDrift) lastViolationTypeRef.current = "elbowDrift";
+            else if (hasElbowForward) lastViolationTypeRef.current = "elbowForward";
             else if (hasElbowFlare) lastViolationTypeRef.current = "elbowFlare";
             else if (hasShoulderShrug) lastViolationTypeRef.current = "shoulderShrug";
           }
@@ -222,6 +241,7 @@ export function usePoseDetection(
               formViolationRef.current = true;
               repHadViolationRef.current = true;
               if (hasElbowDrift) lastViolationTypeRef.current = "elbowDrift";
+              else if (hasElbowForward) lastViolationTypeRef.current = "elbowForward";
               else if (hasElbowFlare) lastViolationTypeRef.current = "elbowFlare";
               else if (hasShoulderShrug) lastViolationTypeRef.current = "shoulderShrug";
             }
@@ -245,11 +265,16 @@ export function usePoseDetection(
             lastViolationTypeRef.current = null;
           }
 
-          // Capture baselines when in starting down phase
-          if (phaseRef.current === "down" && angle > 150) {
+          // Capture baselines ONCE when first seen at rest — do not keep overwriting
+          if (
+            phaseRef.current === "down" &&
+            angle > 150 &&
+            baselineShoulderYRef.current === null
+          ) {
             baselineElbowXRef.current = elbow.x;
             baselineElbowShoulderDxRef.current = Math.abs(elbow.x - shoulder.x);
             baselineShoulderYRef.current = shoulder.y;
+            baselineElbowZDiffRef.current = elbow.z - shoulder.z;
           }
 
           // Throttled feedback (1500ms) — skip if we just showed invalid rep feedback
@@ -265,10 +290,13 @@ export function usePoseDetection(
               newFeedback = "Stand slightly side-on and keep your lifting arm clearly visible to begin";
               newType = "neutral";
             }
-            // Priority: elbow drift → elbow flare → shoulder shrug → wrist dev → ROM → good/recovery
+            // Priority: elbow drift → elbow forward → elbow flare → shoulder shrug → wrist dev → ROM → good/recovery
             else {
               if (hasElbowDrift) {
                 newFeedback = "Keep your elbows pinned by your sides";
+                newType = "correction";
+              } else if (hasElbowForward) {
+                newFeedback = "Don't let your elbow drift forward";
                 newType = "correction";
               } else if (hasElbowFlare) {
                 newFeedback = "Keep your elbow tucked in";
@@ -288,6 +316,9 @@ export function usePoseDetection(
                 switch (lastViolationTypeRef.current) {
                   case "elbowDrift":
                     newFeedback = "Better — keep your elbows pinned";
+                    break;
+                  case "elbowForward":
+                    newFeedback = "Better — keep your elbow back";
                     break;
                   case "elbowFlare":
                     newFeedback = "Better — keep your elbow tucked";
