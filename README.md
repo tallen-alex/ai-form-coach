@@ -1,6 +1,6 @@
 ## Project info
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+**URL**: https://pose-coach-go.lovable.app
 
 ## What technologies are used for this project?
 
