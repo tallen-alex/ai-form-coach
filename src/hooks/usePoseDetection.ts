@@ -10,6 +10,8 @@ interface PoseDetectionResult {
   validRep: boolean;
 }
 
+type CalibrationState = "uncalibrated" | "calibrating" | "calibrated" | "recalibrating";
+
 function angleBetween(
   a: { x: number; y: number },
   b: { x: number; y: number },
@@ -46,13 +48,40 @@ export function usePoseDetection(
   const baselineElbowXRef = useRef<number | null>(null);
   const baselineElbowShoulderDxRef = useRef<number | null>(null);
   const baselineShoulderYRef = useRef<number | null>(null);
-  const baselineElbowZDiffRef = useRef<number | null>(null); // NEW: for forward elbow projection
+  const baselineElbowZDiffRef = useRef<number | null>(null);
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
   const formViolationRef = useRef(false);
   const lastViolationTypeRef = useRef<"elbowDrift" | "elbowFlare" | "elbowForward" | "shoulderShrug" | null>(null);
   const repHadViolationRef = useRef(false);
+
+  // --- Calibration state machine refs ---
+  const calibrationStateRef = useRef<CalibrationState>("uncalibrated");
+  const stableFrameCountRef = useRef(0);
+  const lastShoulderYRef = useRef<number | null>(null);
+  const lowConfFrameCountRef = useRef(0);
+  const shoulderYHistoryRef = useRef<number[]>([]);
+  const calibrationCompleteTimeRef = useRef<number>(0);
+  const shownReadyMessageRef = useRef(false);
+
+  const STABLE_FRAMES_REQUIRED = 20;
+  const RECALIB_LOW_CONF_FRAMES = 10;
+  const RECALIB_COOLDOWN_MS = 3000;
+  const SHOULDER_STABILITY_THRESHOLD = 0.02; // max shoulder Y movement between frames during calibration
+  const RECALIB_SHOULDER_SHIFT = 0.2; // * bodyScale
+
+  const resetBaselines = useCallback(() => {
+    baselineElbowXRef.current = null;
+    baselineElbowShoulderDxRef.current = null;
+    baselineShoulderYRef.current = null;
+    baselineElbowZDiffRef.current = null;
+    stableFrameCountRef.current = 0;
+    lastShoulderYRef.current = null;
+    lowConfFrameCountRef.current = 0;
+    shoulderYHistoryRef.current = [];
+    shownReadyMessageRef.current = false;
+  }, []);
 
   const resetState = useCallback(() => {
     setReps(0);
@@ -63,18 +92,16 @@ export function usePoseDetection(
     setValidRep(false);
     phaseRef.current = "down";
     lastFeedbackTimeRef.current = 0;
-    baselineElbowXRef.current = null;
-    baselineElbowShoulderDxRef.current = null;
-    baselineShoulderYRef.current = null;
-    baselineElbowZDiffRef.current = null; // NEW
     hasCountedFirstRepRef.current = false;
     hasCurlStartedRef.current = false;
     formViolationRef.current = false;
     lastViolationTypeRef.current = null;
     repHadViolationRef.current = false;
-  }, []);
+    calibrationStateRef.current = "uncalibrated";
+    calibrationCompleteTimeRef.current = 0;
+    resetBaselines();
+  }, [resetBaselines]);
 
-  // Keep showOverlayRef in sync without re-running the effect
   useEffect(() => {
     showOverlayRef.current = showOverlay;
   }, [showOverlay]);
@@ -101,7 +128,6 @@ export function usePoseDetection(
     let cancelled = false;
 
     const loadPose = async () => {
-      // Use CDN globals (loaded via script tags in index.html)
       const PoseClass = (window as any).Pose;
       const poseConnections = (window as any).POSE_CONNECTIONS;
       const CameraClass = (window as any).Camera;
@@ -137,7 +163,6 @@ export function usePoseDetection(
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (results.poseLandmarks) {
-          // Only draw overlay when enabled
           if (showOverlayRef.current) {
             drawConnectorsFunc(ctx, results.poseLandmarks, poseConnections, {
               color: "rgba(0, 255, 128, 0.4)",
@@ -170,10 +195,81 @@ export function usePoseDetection(
             hip.visibility ?? 0
           );
 
+          const bodyScale = Math.abs(shoulder.y - hip.y) || 0.2;
+          const angle = angleBetween(shoulder, elbow, wrist);
+          const calState = calibrationStateRef.current;
+          const now = Date.now();
+
+          // =============================================
+          // CALIBRATION STATE MACHINE
+          // =============================================
+
+          // --- Handle low-confidence recalibration trigger ---
           if (minVis <= 0.5) {
-            const now = Date.now();
+            lowConfFrameCountRef.current++;
+          } else {
+            lowConfFrameCountRef.current = 0;
+          }
+
+          // --- uncalibrated / calibrating / recalibrating ---
+          if (calState === "uncalibrated" || calState === "calibrating" || calState === "recalibrating") {
+            if (minVis <= 0.5) {
+              // Not enough confidence, reset stable count
+              stableFrameCountRef.current = 0;
+              lastShoulderYRef.current = null;
+              if (calState === "uncalibrated") {
+                calibrationStateRef.current = "uncalibrated";
+              }
+              const feedbackNow = Date.now();
+              if (feedbackNow - lastFeedbackTimeRef.current >= 1500) {
+                setFeedback("Make sure your side profile and lifting arm are clearly visible");
+                setFeedbackType("neutral");
+                lastFeedbackTimeRef.current = feedbackNow;
+              }
+              setIsDetecting(false);
+              return;
+            }
+
+            // High confidence frame — check stability for calibration
+            const allHighConf = minVis > 0.7;
+            const armExtended = angle > 150;
+            const shoulderStable = lastShoulderYRef.current === null ||
+              Math.abs(shoulder.y - lastShoulderYRef.current) < SHOULDER_STABILITY_THRESHOLD;
+
+            if (allHighConf && armExtended && shoulderStable) {
+              stableFrameCountRef.current++;
+              if (calState === "uncalibrated") {
+                calibrationStateRef.current = "calibrating";
+              }
+            } else {
+              stableFrameCountRef.current = 0;
+            }
+
+            lastShoulderYRef.current = shoulder.y;
+
+            if (stableFrameCountRef.current >= STABLE_FRAMES_REQUIRED) {
+              // Lock baselines
+              baselineElbowXRef.current = elbow.x;
+              baselineElbowShoulderDxRef.current = Math.abs(elbow.x - shoulder.x);
+              baselineShoulderYRef.current = shoulder.y;
+              baselineElbowZDiffRef.current = elbow.z - shoulder.z;
+              shoulderYHistoryRef.current = [];
+              calibrationStateRef.current = "calibrated";
+              calibrationCompleteTimeRef.current = Date.now();
+              shownReadyMessageRef.current = false;
+
+              setFeedback("Ready! Start your reps");
+              setFeedbackType("positive");
+              lastFeedbackTimeRef.current = Date.now();
+              shownReadyMessageRef.current = true;
+              setIsDetecting(true);
+              return;
+            }
+
+            // Show calibrating feedback
+            const label = calState === "recalibrating" ? "Recalibrating..." : "Hold still to calibrate...";
             if (now - lastFeedbackTimeRef.current >= 1500) {
-              setFeedback("Make sure your side profile and lifting arm are clearly visible");
+              setFeedback(label);
               setFeedbackType("neutral");
               lastFeedbackTimeRef.current = now;
             }
@@ -181,15 +277,71 @@ export function usePoseDetection(
             return;
           }
 
-          const angle = angleBetween(shoulder, elbow, wrist);
+          // --- calibrated state: normal detection + recalibration checks ---
+
+          // Low confidence gate (existing behavior)
+          if (minVis <= 0.5) {
+            if (now - lastFeedbackTimeRef.current >= 1500) {
+              setFeedback("Make sure your side profile and lifting arm are clearly visible");
+              setFeedbackType("neutral");
+              lastFeedbackTimeRef.current = now;
+            }
+            setIsDetecting(false);
+
+            // Check recalibration: 10+ consecutive low-conf frames, past cooldown
+            if (
+              lowConfFrameCountRef.current >= RECALIB_LOW_CONF_FRAMES &&
+              now - calibrationCompleteTimeRef.current > RECALIB_COOLDOWN_MS
+            ) {
+              calibrationStateRef.current = "recalibrating";
+              resetBaselines();
+              calibrationStateRef.current = "uncalibrated"; // will transition to calibrating
+              setFeedback("Recalibrating...");
+              setFeedbackType("neutral");
+              lastFeedbackTimeRef.current = now;
+            }
+            return;
+          }
+
+          // Rolling shoulder Y history for recalibration detection
+          shoulderYHistoryRef.current.push(shoulder.y);
+          if (shoulderYHistoryRef.current.length > 5) {
+            shoulderYHistoryRef.current.shift();
+          }
+
+          // Check rolling shoulder shift recalibration
+          if (
+            baselineShoulderYRef.current !== null &&
+            shoulderYHistoryRef.current.length === 5 &&
+            now - calibrationCompleteTimeRef.current > RECALIB_COOLDOWN_MS
+          ) {
+            const avgShoulderY = shoulderYHistoryRef.current.reduce((a, b) => a + b, 0) / 5;
+            const shift = Math.abs(avgShoulderY - baselineShoulderYRef.current);
+            if (shift > RECALIB_SHOULDER_SHIFT * bodyScale) {
+              // Trigger recalibration — preserve reps
+              calibrationStateRef.current = "uncalibrated";
+              resetBaselines();
+              hasCurlStartedRef.current = false;
+              phaseRef.current = "down";
+              formViolationRef.current = false;
+              repHadViolationRef.current = false;
+              lastViolationTypeRef.current = null;
+              setFeedback("Recalibrating...");
+              setFeedbackType("neutral");
+              lastFeedbackTimeRef.current = now;
+              setIsDetecting(false);
+              return;
+            }
+          }
+
+          // =============================================
+          // NORMAL DETECTION (only when calibrated)
+          // =============================================
 
           // Track when user has meaningfully started curling
           if (!hasCurlStartedRef.current && angle < 140) {
             hasCurlStartedRef.current = true;
           }
-
-          // Body scale: shoulder-to-hip distance normalizes thresholds for camera distance
-          const bodyScale = Math.abs(shoulder.y - hip.y) || 0.2; // fallback prevents division by zero
 
           // --- FORM VIOLATION CHECKS ---
 
@@ -197,24 +349,17 @@ export function usePoseDetection(
           const baselineDx = baselineElbowShoulderDxRef.current;
           const currentDx = Math.abs(elbow.x - shoulder.x);
           const hasElbowDrift = baselineDx !== null && (currentDx - baselineDx) / bodyScale > 0.15;
-          // TUNE ↑ raise toward 0.25 if triggering too often
 
           // Elbow flare: absolute sideways distance from shoulder, normalized
           const hasElbowFlare = Math.abs(elbow.x - shoulder.x) / bodyScale > 0.35;
-          // TUNE ↑ raise toward 0.5 if triggering too often
 
-          // Elbow forward projection: elbow moving toward camera (Z-axis depth)
-          // MediaPipe Z is negative = closer to camera. Forward projection = elbow.z drops below shoulder.z
-          const baselineZDiff = baselineElbowZDiffRef.current;
-          const currentZDiff = elbow.z - shoulder.z;
-          const hasElbowForward = false //baselineZDiff !== null && (currentZDiff - baselineZDiff) < -0.12;
-          // TUNE ↑ make less negative (e.g. -0.08) if not triggering; more negative (e.g. -0.18) if too sensitive
+          // Elbow forward projection (disabled)
+          const hasElbowForward = false;
 
           // Shoulder shrug: shoulder rising above baseline, normalized
           const hasShoulderShrug = baselineShoulderYRef.current !== null
             ? (baselineShoulderYRef.current - shoulder.y) / bodyScale > 0.12
             : false;
-          // TUNE ↑ raise toward 0.2 if triggering too often on normal movement
 
           const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasElbowForward || hasShoulderShrug;
 
@@ -222,7 +367,6 @@ export function usePoseDetection(
           if (hasHighPriorityViolation) {
             formViolationRef.current = true;
             repHadViolationRef.current = true;
-            // Track specific violation type (priority order)
             if (hasElbowDrift) lastViolationTypeRef.current = "elbowDrift";
             else if (hasElbowForward) lastViolationTypeRef.current = "elbowForward";
             else if (hasElbowFlare) lastViolationTypeRef.current = "elbowFlare";
@@ -232,11 +376,9 @@ export function usePoseDetection(
           // Rep counting: down (>150) -> up (<60) -> down (>150) = 1 rep
           if (angle < 60 && phaseRef.current === "down") {
             phaseRef.current = "up";
-            // Reset violation tracking at the start of a new rep cycle
             formViolationRef.current = false;
             repHadViolationRef.current = false;
             lastViolationTypeRef.current = null;
-            // Mark violation immediately if form is already bad at the top
             if (hasHighPriorityViolation) {
               formViolationRef.current = true;
               repHadViolationRef.current = true;
@@ -248,7 +390,6 @@ export function usePoseDetection(
           } else if (angle > 150 && phaseRef.current === "up") {
             phaseRef.current = "down";
             if (formViolationRef.current) {
-              // Invalid rep — don't count, show feedback
               setInvalidRep(true);
               setTimeout(() => setInvalidRep(false), 1200);
               setFeedback("Rep not counted — fix your form");
@@ -265,33 +406,17 @@ export function usePoseDetection(
             lastViolationTypeRef.current = null;
           }
 
-          // Capture baselines ONCE when first seen at rest — do not keep overwriting
-          if (
-            phaseRef.current === "down" &&
-            angle > 150 &&
-            baselineShoulderYRef.current === null
-          ) {
-            baselineElbowXRef.current = elbow.x;
-            baselineElbowShoulderDxRef.current = Math.abs(elbow.x - shoulder.x);
-            baselineShoulderYRef.current = shoulder.y;
-            baselineElbowZDiffRef.current = elbow.z - shoulder.z;
-          }
-
-          // Throttled feedback (1500ms) — skip if we just showed invalid rep feedback
-          const now = Date.now();
+          // Throttled feedback (1500ms)
           if (now - lastFeedbackTimeRef.current >= 1500) {
             let newFeedback = "";
             let newType: FeedbackType = "neutral";
 
             const wristDev = Math.abs(wrist.x - elbow.x);
 
-            // Pre-curl guidance (before user has started curling)
             if (!hasCurlStartedRef.current) {
               newFeedback = "Stand slightly side-on and keep your lifting arm clearly visible to begin";
               newType = "neutral";
-            }
-            // Priority: elbow drift → elbow forward → elbow flare → shoulder shrug → wrist dev → ROM → good/recovery
-            else {
+            } else {
               if (hasElbowDrift) {
                 newFeedback = "Keep your elbows pinned by your sides";
                 newType = "correction";
@@ -311,7 +436,6 @@ export function usePoseDetection(
                 newFeedback = "Curl a little higher for full range";
                 newType = "neutral";
               } else if (repHadViolationRef.current && lastViolationTypeRef.current) {
-                // Violation was corrected mid-rep — show recovery message
                 newType = "neutral";
                 switch (lastViolationTypeRef.current) {
                   case "elbowDrift":
@@ -343,6 +467,8 @@ export function usePoseDetection(
 
           setIsDetecting(true);
         } else {
+          // No landmarks — if calibrated, start low-conf counting
+          lowConfFrameCountRef.current++;
           setFeedback("Stand slightly side-on and keep your lifting arm clearly visible to begin");
           setFeedbackType("neutral");
           setIsDetecting(false);
@@ -377,7 +503,7 @@ export function usePoseDetection(
         poseRef.current = null;
       }
     };
-  }, [selectedExerciseId, videoRef, canvasRef, resetState]);
+  }, [selectedExerciseId, videoRef, canvasRef, resetState, resetBaselines]);
 
   return { reps, feedback, feedbackType, isDetecting, invalidRep, validRep };
 }
