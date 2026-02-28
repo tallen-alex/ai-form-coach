@@ -207,7 +207,7 @@ export function usePoseDetection(
           // MediaPipe Z is negative = closer to camera. Forward projection = elbow.z drops below shoulder.z
           const baselineZDiff = baselineElbowZDiffRef.current;
           const currentZDiff = elbow.z - shoulder.z;
-          const hasElbowForward = baselineZDiff !== null && (currentZDiff - baselineZDiff) < -0.12;
+          const hasElbowForward = false //baselineZDiff !== null && (currentZDiff - baselineZDiff) < -0.12;
           // TUNE ↑ make less negative (e.g. -0.08) if not triggering; more negative (e.g. -0.18) if too sensitive
 
           // Shoulder shrug: shoulder rising above baseline, normalized
