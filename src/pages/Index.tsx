@@ -1,3 +1,4 @@
+// Force full remount after hook structure change
 import { useRef, useState } from "react";
 import { ArrowLeft, Check, Dumbbell, X } from "lucide-react";
 import ExerciseSelection, { type Exercise } from "@/components/ExerciseSelection";
