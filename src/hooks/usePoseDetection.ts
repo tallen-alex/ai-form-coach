@@ -368,11 +368,12 @@ export function usePoseDetection(
             currentElbowShoulderZDiff - baselineElbowShoulderZRef.current < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
-          // Shoulder shrug: shoulder Y alone vs baseline (hip moves with shoulder so ratio is useless)
+          // Shoulder shrug: shoulder Y alone vs baseline, normalized by bodyScale
           // shoulder.y decreasing = rising in frame = shrug
-          // Normalize by bodyScale so camera distance doesn't affect threshold
-          const currentShoulderY = shoulder.y;
-          const hasShoulderShrug = false; // DISABLED — testing via debug log first
+          // Data: normal ~-0.005, shrug ~-0.110 → threshold -0.05 gives good headroom
+          const hasShoulderShrug =
+            baselineShoulderYRef.current !== null && (shoulder.y - baselineShoulderYRef.current) / bodyScale < -0.05;
+          // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
           // DEBUG: log shoulder shrug values every 5s
           if (now - lastDebugLogRef.current >= 5000) {
