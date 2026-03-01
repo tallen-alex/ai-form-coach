@@ -56,7 +56,9 @@ export function usePoseDetection(
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
   const formViolationRef = useRef(false);
-  const lastViolationTypeRef = useRef<"elbowDrift" | "elbowFlare" | "elbowForward" | "shoulderShrug" | null>(null);
+  const lastViolationTypeRef = useRef<
+    "elbowDrift" | "elbowFlare" | "elbowForward" | "shoulderShrug" | "wristPronation" | null
+  >(null);
   const repHadViolationRef = useRef(false);
   const lastDebugLogRef = useRef(0);
 
@@ -381,6 +383,16 @@ export function usePoseDetection(
             baselineShoulderYRef.current !== null && (shoulder.y - baselineShoulderYRef.current) / bodyScale < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
+          // Wrist pronation: wrist rotating inward at top of curl
+          // Gated to angle < 70° — only check at top where pronation matters
+          // Data: normal top ~-0.012, pronated top ~+0.032 to +0.061 → threshold +0.025
+          const currentWristElbowZ = wrist.z - elbow.z;
+          const hasWristPronation =
+            baselineWristElbowZRef.current !== null &&
+            angle < 70 &&
+            currentWristElbowZ - baselineWristElbowZRef.current > 0.025;
+          // TUNE: raise toward 0.04 if triggering on normal reps; lower toward 0.02 if not triggering
+
           // DEBUG: log wrist pronation values — wrist inward curl = wristElbowZ_delta goes negative
           if (now - lastDebugLogRef.current >= 2000) {
             lastDebugLogRef.current = now;
@@ -396,11 +408,13 @@ export function usePoseDetection(
               angle: angle.toFixed(1),
               hasElbowForward,
               hasShoulderShrug,
+              hasWristPronation,
             });
           }
 
-          const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasElbowForward || hasShoulderShrug;
-          // Active checks: elbowForward ✓  elbowFlare ✓  shoulderShrug ✗ (testing)  elbowDrift ✗
+          const hasHighPriorityViolation =
+            hasElbowDrift || hasElbowFlare || hasElbowForward || hasShoulderShrug || hasWristPronation;
+          // Active checks: elbowForward ✓  elbowFlare ✓  shoulderShrug ✓  wristPronation ✓  elbowDrift ✗
 
           if (hasHighPriorityViolation) {
             formViolationRef.current = true;
@@ -409,6 +423,7 @@ export function usePoseDetection(
             else if (hasElbowForward) lastViolationTypeRef.current = "elbowForward";
             else if (hasElbowFlare) lastViolationTypeRef.current = "elbowFlare";
             else if (hasShoulderShrug) lastViolationTypeRef.current = "shoulderShrug";
+            else if (hasWristPronation) lastViolationTypeRef.current = "wristPronation";
           }
 
           // Rep counting: down (>150) -> up (<60) -> down (>150) = 1 rep
@@ -424,6 +439,7 @@ export function usePoseDetection(
               else if (hasElbowForward) lastViolationTypeRef.current = "elbowForward";
               else if (hasElbowFlare) lastViolationTypeRef.current = "elbowFlare";
               else if (hasShoulderShrug) lastViolationTypeRef.current = "shoulderShrug";
+              else if (hasWristPronation) lastViolationTypeRef.current = "wristPronation";
             }
           } else if (angle > 150 && phaseRef.current === "up") {
             phaseRef.current = "down";
@@ -465,6 +481,9 @@ export function usePoseDetection(
               } else if (hasShoulderShrug) {
                 newFeedback = "Don't shrug — keep shoulders down";
                 newType = "correction";
+              } else if (hasWristPronation) {
+                newFeedback = "Keep your wrist straight — don't curl it in";
+                newType = "correction";
               } else if (repHadViolationRef.current && lastViolationTypeRef.current) {
                 newType = "neutral";
                 switch (lastViolationTypeRef.current) {
@@ -479,6 +498,9 @@ export function usePoseDetection(
                     break;
                   case "shoulderShrug":
                     newFeedback = "Better — keep shoulders down";
+                    break;
+                  case "wristPronation":
+                    newFeedback = "Better — keep that wrist neutral";
                     break;
                 }
               } else if (angle >= 60 && angle < 90) {
