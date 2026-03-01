@@ -370,9 +370,11 @@ export function usePoseDetection(
             Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.12;
           // TUNE: raise toward 0.16 if still triggering on normal reps; lower toward 0.09 if not triggering on forward push
 
-          // Elbow flare: Z axis — enabled but threshold based on debug data
+          // Elbow flare: Z axis — gated to suppress when shrug is active
+          // Shrug changes shoulder Z enough to falsely trigger flare, so we suppress it
           const hasElbowFlare =
             baselineElbowShoulderZRef.current !== null &&
+            !hasShoulderShrug && // don't fire flare during a shrug
             currentElbowShoulderZDiff - baselineElbowShoulderZRef.current < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
@@ -463,8 +465,12 @@ export function usePoseDetection(
             let newType: FeedbackType = "neutral";
 
             if (!hasCurlStartedRef.current) {
-              newFeedback = "Stand fully side-on, lifting arm closest to camera, arm fully extended";
-              newType = "neutral";
+              // Only show idle message if enough time has passed since calibration
+              // so we don't overwrite "Ready! Start your reps"
+              if (now - calibrationCompleteTimeRef.current > 3000) {
+                newFeedback = "Arm fully extended — start your curl when ready";
+                newType = "neutral";
+              }
             } else {
               if (hasElbowDrift) {
                 newFeedback = "Keep your elbows pinned by your sides";
