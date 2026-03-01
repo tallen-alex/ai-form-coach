@@ -1,3 +1,4 @@
+// checking only elbow flare
 import { useRef, useEffect, useState, useCallback } from "react";
 import type { FeedbackType } from "@/components/FeedbackCard";
 
@@ -51,6 +52,7 @@ export function usePoseDetection(
   const baselineElbowShoulderDxRef = useRef<number | null>(null);
   const baselineShoulderYRef = useRef<number | null>(null);
   const baselineElbowZDiffRef = useRef<number | null>(null);
+  const baselineElbowHipXRef = useRef<number | null>(null); // elbow.x - hip.x relative baseline for flare
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
@@ -78,6 +80,7 @@ export function usePoseDetection(
     baselineElbowShoulderDxRef.current = null;
     baselineShoulderYRef.current = null;
     baselineElbowZDiffRef.current = null;
+    baselineElbowHipXRef.current = null;
     stableFrameCountRef.current = 0;
     lastShoulderYRef.current = null;
     lowConfFrameCountRef.current = 0;
@@ -233,17 +236,29 @@ export function usePoseDetection(
             const shoulderStable = lastShoulderYRef.current === null ||
               Math.abs(shoulder.y - lastShoulderYRef.current) < SHOULDER_STABILITY_THRESHOLD;
 
-            if (allHighConf && armExtended && shoulderStable) {
+            // Side-on orientation gate: in true side-on, the two shoulders have very
+            // different Z values (one is much closer to camera). If they are similar,
+            // the user is facing forward or at an angle — reject calibration.
+            const shoulderZSpread = Math.abs(lm[11].z - lm[12].z);
+            const isSideOn = shoulderZSpread > 0.15;
+            // TUNE: lower toward 0.10 if side-on users aren't passing the gate
+
+            if (allHighConf && armExtended && shoulderStable && isSideOn) {
               stableFrameCountRef.current++;
               if (calState === "uncalibrated") {
                 calibrationStateRef.current = "calibrating";
               }
               const framesLeft = STABLE_FRAMES_REQUIRED - stableFrameCountRef.current;
-              const secondsLeft = Math.ceil(framesLeft / 15);
+              const secondsLeft = Math.ceil(framesLeft / 30); // 30fps
               setCalibrationCountdown(secondsLeft > 0 ? secondsLeft : 1);
             } else {
               stableFrameCountRef.current = 0;
               setCalibrationCountdown(null);
+              if (!isSideOn && now - lastFeedbackTimeRef.current >= 1500) {
+                setFeedback("Turn fully side-on — lifting arm closest to camera");
+                setFeedbackType("neutral");
+                lastFeedbackTimeRef.current = now;
+              }
             }
 
             lastShoulderYRef.current = shoulder.y;
@@ -253,6 +268,7 @@ export function usePoseDetection(
               baselineElbowShoulderDxRef.current = Math.abs(elbow.x - shoulder.x);
               baselineShoulderYRef.current = shoulder.y;
               baselineElbowZDiffRef.current = elbow.z - shoulder.z;
+              baselineElbowHipXRef.current = elbow.x - hip.x;
               shoulderYHistoryRef.current = [];
               calibrationStateRef.current = "calibrated";
               calibrationCompleteTimeRef.current = Date.now();
@@ -343,9 +359,13 @@ export function usePoseDetection(
           // Elbow drift: DISABLED
           const hasElbowDrift = false;
 
-          // Elbow flare: absolute sideways distance from shoulder, normalized
-          const hasElbowFlare = Math.abs(elbow.x - shoulder.x) / bodyScale > 0.35;
-          // TUNE ↑ raise toward 0.5 if too sensitive
+          // Elbow flare: elbow swinging sideways away from hip line, relative to baseline
+          // In side-on view elbow.x - hip.x changes when elbow flares out
+          const currentElbowHipX = elbow.x - hip.x;
+          const hasElbowFlare =
+            baselineElbowHipXRef.current !== null &&
+            Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.12;
+          // TUNE: raise toward 0.18 if triggering on normal reps; lower toward 0.08 if not triggering
 
           // Elbow forward: DISABLED
           const hasElbowForward = false;
