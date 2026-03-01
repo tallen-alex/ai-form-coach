@@ -370,19 +370,19 @@ export function usePoseDetection(
             Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.12;
           // TUNE: raise toward 0.16 if still triggering on normal reps; lower toward 0.09 if not triggering on forward push
 
+          // Shoulder shrug: shoulder Y alone vs baseline, normalized by bodyScale
+          // shoulder.y decreasing = rising in frame = shrug
+          // Data: normal ~-0.005, shrug ~-0.110 → threshold -0.05 gives good headroom
+          const hasShoulderShrug =
+            baselineShoulderYRef.current !== null && (shoulder.y - baselineShoulderYRef.current) / bodyScale < -0.05;
+          // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
+
           // Elbow flare: Z axis — gated to suppress when shrug is active
           // Shrug changes shoulder Z enough to falsely trigger flare, so we suppress it
           const hasElbowFlare =
             baselineElbowShoulderZRef.current !== null &&
             !hasShoulderShrug && // don't fire flare during a shrug
             currentElbowShoulderZDiff - baselineElbowShoulderZRef.current < -0.05;
-          // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
-
-          // Shoulder shrug: shoulder Y alone vs baseline, normalized by bodyScale
-          // shoulder.y decreasing = rising in frame = shrug
-          // Data: normal ~-0.005, shrug ~-0.110 → threshold -0.05 gives good headroom
-          const hasShoulderShrug =
-            baselineShoulderYRef.current !== null && (shoulder.y - baselineShoulderYRef.current) / bodyScale < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
           // Wrist pronation: wrist rotating inward at top of curl
