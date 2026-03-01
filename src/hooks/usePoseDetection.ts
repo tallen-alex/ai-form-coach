@@ -1,4 +1,4 @@
-// checking only elbow flare
+//check only elbow flare fix 2
 import { useRef, useEffect, useState, useCallback } from "react";
 import type { FeedbackType } from "@/components/FeedbackCard";
 
@@ -438,9 +438,6 @@ export function usePoseDetection(
               } else if (hasShoulderShrug) {
                 newFeedback = "Don't shrug — keep shoulders down";
                 newType = "correction";
-              } else if (angle >= 60 && angle < 90) {
-                newFeedback = "Curl a little higher for full range";
-                newType = "neutral";
               } else if (repHadViolationRef.current && lastViolationTypeRef.current) {
                 newType = "neutral";
                 switch (lastViolationTypeRef.current) {
@@ -457,6 +454,10 @@ export function usePoseDetection(
                     newFeedback = "Better — keep shoulders down";
                     break;
                 }
+              } else if (angle >= 60 && angle < 90) {
+                // ROM suggestion — lowest priority, only shows when form is clean
+                newFeedback = "Curl a little higher for full range";
+                newType = "neutral";
               } else if (angle < 60) {
                 newFeedback = "Great squeeze!";
                 newType = "positive";
