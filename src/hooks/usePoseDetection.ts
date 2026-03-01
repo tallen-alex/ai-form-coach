@@ -357,10 +357,29 @@ export function usePoseDetection(
           // Elbow flare: elbow swinging sideways away from hip line, relative to baseline
           // In side-on view elbow.x - hip.x changes when elbow flares out
           const currentElbowHipX = elbow.x - hip.x;
+          const currentElbowShoulderX = elbow.x - shoulder.x;
+          const currentElbowShoulderZ = elbow.z - shoulder.z;
           const hasElbowFlare =
             baselineElbowHipXRef.current !== null &&
             Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.12;
           // TUNE: raise toward 0.18 if triggering on normal reps; lower toward 0.08 if not triggering
+
+          // DEBUG: log raw values every ~30 frames to help tune thresholds
+          // Remove this block once detection is working
+          if (Math.floor(now / 500) % 2 === 0) {
+            console.log("[FORM DEBUG]", {
+              elbowHipX_delta:
+                baselineElbowHipXRef.current !== null
+                  ? ((currentElbowHipX - baselineElbowHipXRef.current) / bodyScale).toFixed(3)
+                  : "no baseline",
+              elbowShoulderX: (currentElbowShoulderX / bodyScale).toFixed(3),
+              elbowShoulderZ: currentElbowShoulderZ.toFixed(3),
+              baselineElbowHipX: baselineElbowHipXRef.current?.toFixed(3) ?? "null",
+              bodyScale: bodyScale.toFixed(3),
+              hasElbowFlare,
+              angle: angle.toFixed(1),
+            });
+          }
 
           // Elbow forward: DISABLED
           const hasElbowForward = false;
