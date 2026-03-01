@@ -1,12 +1,13 @@
 // @refresh reset
-// Force full remount after hook structure change — v6
+// Force full remount after hook structure change — v7
 import { useRef, useState } from "react";
-import { ArrowLeft, Check, Dumbbell, X } from "lucide-react";
+import { ArrowLeft, Check, Dumbbell, Volume2, VolumeX, X } from "lucide-react";
 import ExerciseSelection, { type Exercise } from "@/components/ExerciseSelection";
 import InstructionScreen from "@/components/InstructionScreen";
 import RepCounter from "@/components/RepCounter";
 import FeedbackCard from "@/components/FeedbackCard";
 import { usePoseDetection } from "@/hooks/usePoseDetection";
+import { useVoiceCoach } from "@/hooks/useVoiceCoach";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 
@@ -16,6 +17,7 @@ const Index = () => {
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [screen, setScreen] = useState<Screen>("selection");
   const [showOverlay, setShowOverlay] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -27,6 +29,8 @@ const Index = () => {
     isWorkout ? (selectedExercise?.id ?? null) : null,
     showOverlay
   );
+
+  useVoiceCoach(voiceEnabled && isWorkout, reps, invalidRep, feedback, feedbackType);
 
   const handleSelect = (exercise: Exercise) => {
     setSelectedExercise(exercise);
@@ -83,16 +87,29 @@ const Index = () => {
           </h1>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label htmlFor="debug-overlay" className="text-xs text-muted-foreground font-medium">
-            Debug
-          </label>
-          <Switch
-            id="debug-overlay"
-            checked={showOverlay}
-            onCheckedChange={setShowOverlay}
-            className="scale-75"
-          />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setVoiceEnabled((v) => !v)}
+            className="glass-card rounded-xl p-2 transition-colors hover:bg-secondary/60"
+            aria-label={voiceEnabled ? "Disable voice coach" : "Enable voice coach"}
+          >
+            {voiceEnabled ? (
+              <Volume2 className="h-4 w-4 text-primary" />
+            ) : (
+              <VolumeX className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="debug-overlay" className="text-xs text-muted-foreground font-medium">
+              Debug
+            </label>
+            <Switch
+              id="debug-overlay"
+              checked={showOverlay}
+              onCheckedChange={setShowOverlay}
+              className="scale-75"
+            />
+          </div>
         </div>
       </div>
 
