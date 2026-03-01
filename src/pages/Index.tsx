@@ -14,7 +14,7 @@ const Index = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const { reps, feedback, feedbackType, invalidRep, validRep } = usePoseDetection(
+  const { reps, feedback, feedbackType, invalidRep, validRep, calibrationCountdown } = usePoseDetection(
     videoRef,
     canvasRef,
     selectedExercise?.id ?? null,
@@ -93,6 +93,18 @@ const Index = () => {
           </div>
         )}
       </div>
+
+      {/* Calibration countdown */}
+      {calibrationCountdown !== null && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 pointer-events-none">
+          <div className="glass-card rounded-2xl px-8 py-6 flex flex-col items-center gap-3">
+            <p className="text-sm font-medium text-muted-foreground tracking-wide uppercase">Hold still to calibrate</p>
+            <span className="font-heading text-7xl font-bold text-primary tabular-nums">
+              {calibrationCountdown}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Feedback */}
       <div className="absolute bottom-8 left-4 right-4 z-10 flex justify-center">

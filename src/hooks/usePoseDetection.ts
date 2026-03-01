@@ -8,6 +8,7 @@ interface PoseDetectionResult {
   isDetecting: boolean;
   invalidRep: boolean;
   validRep: boolean;
+  calibrationCountdown: number | null; // seconds remaining, null when not calibrating
 }
 
 type CalibrationState = "uncalibrated" | "calibrating" | "calibrated" | "recalibrating";
@@ -39,6 +40,7 @@ export function usePoseDetection(
   const [isDetecting, setIsDetecting] = useState(false);
   const [invalidRep, setInvalidRep] = useState(false);
   const [validRep, setValidRep] = useState(false);
+  const [calibrationCountdown, setCalibrationCountdown] = useState<number | null>(null);
 
   const phaseRef = useRef<"up" | "down">("down");
   const animFrameRef = useRef<number | null>(null);
@@ -65,11 +67,11 @@ export function usePoseDetection(
   const calibrationCompleteTimeRef = useRef<number>(0);
   const shownReadyMessageRef = useRef(false);
 
-  const STABLE_FRAMES_REQUIRED = 20;
+  const STABLE_FRAMES_REQUIRED = 60; // ~4 seconds at ~15fps
   const RECALIB_LOW_CONF_FRAMES = 10;
   const RECALIB_COOLDOWN_MS = 3000;
-  const SHOULDER_STABILITY_THRESHOLD = 0.02; // max shoulder Y movement between frames during calibration
-  const RECALIB_SHOULDER_SHIFT = 0.2; // * bodyScale
+  const SHOULDER_STABILITY_THRESHOLD = 0.008; // strict frame-to-frame movement check
+  const RECALIB_SHOULDER_SHIFT = 0.5; // * bodyScale — must be larger than shrug threshold to avoid false recalibration
 
   const resetBaselines = useCallback(() => {
     baselineElbowXRef.current = null;
@@ -81,6 +83,7 @@ export function usePoseDetection(
     lowConfFrameCountRef.current = 0;
     shoulderYHistoryRef.current = [];
     shownReadyMessageRef.current = false;
+    setCalibrationCountdown(null);
   }, []);
 
   const resetState = useCallback(() => {
@@ -241,8 +244,13 @@ export function usePoseDetection(
               if (calState === "uncalibrated") {
                 calibrationStateRef.current = "calibrating";
               }
+              // Update countdown: how many seconds remaining
+              const framesLeft = STABLE_FRAMES_REQUIRED - stableFrameCountRef.current;
+              const secondsLeft = Math.ceil(framesLeft / 15);
+              setCalibrationCountdown(secondsLeft > 0 ? secondsLeft : 1);
             } else {
               stableFrameCountRef.current = 0;
+              setCalibrationCountdown(null); // reset countdown if movement detected
             }
 
             lastShoulderYRef.current = shoulder.y;
@@ -257,6 +265,7 @@ export function usePoseDetection(
               calibrationStateRef.current = "calibrated";
               calibrationCompleteTimeRef.current = Date.now();
               shownReadyMessageRef.current = false;
+              setCalibrationCountdown(null);
 
               setFeedback("Ready! Start your reps");
               setFeedbackType("positive");
@@ -345,21 +354,28 @@ export function usePoseDetection(
 
           // --- FORM VIOLATION CHECKS ---
 
-          // Elbow drift: elbow moving away from body sideways vs baseline
+          // Elbow drift: elbow moving sideways away from body vs baseline, normalized
           const baselineDx = baselineElbowShoulderDxRef.current;
           const currentDx = Math.abs(elbow.x - shoulder.x);
-          const hasElbowDrift = baselineDx !== null && (currentDx - baselineDx) / bodyScale > 0.15;
+          const hasElbowDrift = baselineDx !== null && (currentDx - baselineDx) / bodyScale > 0.10;
+          // TUNE ↑ raise toward 0.15 if triggering on normal reps
 
           // Elbow flare: absolute sideways distance from shoulder, normalized
           const hasElbowFlare = Math.abs(elbow.x - shoulder.x) / bodyScale > 0.35;
+          // TUNE ↑ raise toward 0.5 if too sensitive
 
-          // Elbow forward projection (disabled)
-          const hasElbowForward = false;
+          // Elbow forward projection using Z-axis depth
+          const baselineZDiff = baselineElbowZDiffRef.current;
+          const currentZDiff = elbow.z - shoulder.z;
+          const hasElbowForward = baselineZDiff !== null && (currentZDiff - baselineZDiff) < -0.15;
+          // TUNE ↑ make less negative (e.g. -0.10) if not triggering; more negative (e.g. -0.20) if too sensitive
 
           // Shoulder shrug: shoulder rising above baseline, normalized
+          // Threshold must stay well below RECALIB_SHOULDER_SHIFT (0.5) so shrug fires before recalibration
           const hasShoulderShrug = baselineShoulderYRef.current !== null
-            ? (baselineShoulderYRef.current - shoulder.y) / bodyScale > 0.12
+            ? (baselineShoulderYRef.current - shoulder.y) / bodyScale > 0.10
             : false;
+          // TUNE ↑ raise toward 0.15 if triggering on normal movement
 
           const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasElbowForward || hasShoulderShrug;
 
@@ -505,5 +521,5 @@ export function usePoseDetection(
     };
   }, [selectedExerciseId, videoRef, canvasRef, resetState, resetBaselines]);
 
-  return { reps, feedback, feedbackType, isDetecting, invalidRep, validRep };
+  return { reps, feedback, feedbackType, isDetecting, invalidRep, validRep, calibrationCountdown };
 }
