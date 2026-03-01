@@ -362,7 +362,7 @@ export function usePoseDetection(
           const currentElbowShoulderZ = elbow.z - shoulder.z;
           const hasElbowFlare =
             baselineElbowHipXRef.current !== null &&
-            Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.12;
+            Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.08;
           // TUNE: raise toward 0.18 if triggering on normal reps; lower toward 0.08 if not triggering
 
           // DEBUG: log raw values every ~30 frames to help tune thresholds
