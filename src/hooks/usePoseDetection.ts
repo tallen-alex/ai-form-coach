@@ -1,3 +1,4 @@
+// @hmr-reset v4
 import { useRef, useEffect, useState, useCallback } from "react";
 import type { FeedbackType } from "@/components/FeedbackCard";
 
