@@ -363,6 +363,7 @@ export function usePoseDetection(
           const currentElbowHipX = elbow.x - hip.x;
           const currentElbowShoulderX = elbow.x - shoulder.x;
           const currentElbowShoulderZ = elbow.z - shoulder.z;
+          const currentElbowShoulderZDiff = elbow.z - shoulder.z;
           const hasElbowFlare =
             baselineElbowHipXRef.current !== null &&
             Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.08;
@@ -388,7 +389,6 @@ export function usePoseDetection(
           }
 
           // Elbow forward: elbow moving toward camera relative to shoulder (Z axis)
-          const currentElbowShoulderZDiff = elbow.z - shoulder.z;
           const hasElbowForward =
             baselineElbowShoulderZRef.current !== null &&
             (currentElbowShoulderZDiff - baselineElbowShoulderZRef.current) < -0.10;
