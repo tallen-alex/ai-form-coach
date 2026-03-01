@@ -369,9 +369,13 @@ export function usePoseDetection(
             Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.08;
           // TUNE: raise toward 0.12 if triggering on normal reps; lower toward 0.06 if not triggering
 
-          // Elbow flare: hypothesis — sideways flare shows as Z change. Testing now.
-          // DISABLED until confirmed by debug data
-          const hasElbowFlare = false;
+          // Elbow flare: confirmed — sideways flare shows as Z change (elbowShoulderZ_delta)
+          // X also moves during flare but X is already used for forward detection
+          // Z delta reaches ~-0.06 during hard flare vs ~0.001 at rest
+          const hasElbowFlare =
+            baselineElbowShoulderZRef.current !== null &&
+            currentElbowShoulderZDiff - baselineElbowShoulderZRef.current < -0.05;
+          // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
           // DEBUG: log raw values to confirm flare = Z axis
           if (now - lastDebugLogRef.current >= 5000) {
