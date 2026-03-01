@@ -73,6 +73,16 @@ const Index = () => {
         </div>
       </div>
 
+      {/* Calibration countdown */}
+      {calibrationCountdown !== null && (
+        <div className="relative z-10 mt-6 flex flex-col items-center gap-2">
+          <div className="glass-card rounded-2xl px-6 py-4 flex flex-col items-center gap-1 animate-in fade-in duration-300">
+            <span className="text-4xl font-bold text-primary font-heading">{calibrationCountdown}</span>
+            <span className="text-xs text-muted-foreground font-medium">Hold still...</span>
+          </div>
+        </div>
+      )}
+
       {/* Rep counter with invalid rep indicator */}
       <div className="relative z-10 mt-6 flex flex-col items-center gap-2">
         <RepCounter count={reps} exercise={selectedExercise.repLabel} />
