@@ -47,8 +47,9 @@ export function usePoseDetection(
   const baselineElbowShoulderDxRef = useRef<number | null>(null);
   const baselineShoulderYRef = useRef<number | null>(null);
   const baselineElbowZDiffRef = useRef<number | null>(null);
-  const baselineElbowHipXRef = useRef<number | null>(null); // elbow.x - hip.x relative baseline for flare
-  const baselineElbowShoulderZRef = useRef<number | null>(null); // elbow.z - shoulder.z baseline for forward drift
+  const baselineElbowHipXRef = useRef<number | null>(null);
+  const baselineElbowShoulderZRef = useRef<number | null>(null);
+  const baselineShoulderHipYRef = useRef<number | null>(null); // (shoulder.y - hip.y) / bodyScale — for shrug
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
@@ -79,6 +80,7 @@ export function usePoseDetection(
     baselineElbowZDiffRef.current = null;
     baselineElbowHipXRef.current = null;
     baselineElbowShoulderZRef.current = null;
+    baselineShoulderHipYRef.current = null;
     stableFrameCountRef.current = 0;
     lastShoulderYRef.current = null;
     lowConfFrameCountRef.current = 0;
@@ -89,7 +91,7 @@ export function usePoseDetection(
 
   const resetState = useCallback(() => {
     setReps(0);
-    setFeedback("Stand slightly side-on and keep your lifting arm clearly visible to begin");
+    setFeedback("Stand fully side-on, lifting arm closest to camera, arm fully extended");
     setFeedbackType("neutral");
     setIsDetecting(false);
     setInvalidRep(false);
@@ -215,9 +217,6 @@ export function usePoseDetection(
             if (minVis <= 0.5) {
               stableFrameCountRef.current = 0;
               lastShoulderYRef.current = null;
-              if (calState === "uncalibrated") {
-                calibrationStateRef.current = "uncalibrated";
-              }
               const feedbackNow = Date.now();
               if (feedbackNow - lastFeedbackTimeRef.current >= 1500) {
                 setFeedback("Make sure your side profile and lifting arm are clearly visible");
@@ -234,12 +233,8 @@ export function usePoseDetection(
               lastShoulderYRef.current === null ||
               Math.abs(shoulder.y - lastShoulderYRef.current) < SHOULDER_STABILITY_THRESHOLD;
 
-            // Side-on orientation gate: in true side-on, the two shoulders have very
-            // different Z values (one is much closer to camera). If they are similar,
-            // the user is facing forward or at an angle — reject calibration.
             const shoulderZSpread = Math.abs(lm[11].z - lm[12].z);
             const isSideOn = shoulderZSpread > 0.15;
-            // TUNE: lower toward 0.10 if side-on users aren't passing the gate
 
             if (allHighConf && armExtended && shoulderStable && isSideOn) {
               stableFrameCountRef.current++;
@@ -247,7 +242,7 @@ export function usePoseDetection(
                 calibrationStateRef.current = "calibrating";
               }
               const framesLeft = STABLE_FRAMES_REQUIRED - stableFrameCountRef.current;
-              const secondsLeft = Math.ceil(framesLeft / 30); // 30fps
+              const secondsLeft = Math.ceil(framesLeft / 30);
               setCalibrationCountdown(secondsLeft > 0 ? secondsLeft : 1);
             } else {
               stableFrameCountRef.current = 0;
@@ -268,6 +263,7 @@ export function usePoseDetection(
               baselineElbowZDiffRef.current = elbow.z - shoulder.z;
               baselineElbowHipXRef.current = elbow.x - hip.x;
               baselineElbowShoulderZRef.current = elbow.z - shoulder.z;
+              baselineShoulderHipYRef.current = (shoulder.y - hip.y) / bodyScale; // relative shrug baseline
               shoulderYHistoryRef.current = [];
               calibrationStateRef.current = "calibrated";
               calibrationCompleteTimeRef.current = Date.now();
@@ -353,55 +349,57 @@ export function usePoseDetection(
           }
 
           // --- FORM VIOLATION CHECKS ---
-          // All disabled except elbow flare — enable and test one at a time
 
           // Elbow drift: DISABLED
           const hasElbowDrift = false;
 
-          // Elbow flare: elbow swinging sideways away from hip line, relative to baseline
-          // In side-on view elbow.x - hip.x changes when elbow flares out
           const currentElbowHipX = elbow.x - hip.x;
           const currentElbowShoulderZDiff = elbow.z - shoulder.z;
 
-          // Elbow forward: confirmed via debug data — forward push shows as X change (elbowHipX_delta)
+          // Elbow forward: X axis confirmed by debug data
           const hasElbowForward =
             baselineElbowHipXRef.current !== null &&
             Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.08;
-          // TUNE: raise toward 0.12 if triggering on normal reps; lower toward 0.06 if not triggering
+          // TUNE: raise toward 0.12 if triggering on normal reps
 
-          // Elbow flare: confirmed — sideways flare shows as Z change (elbowShoulderZ_delta)
-          // X also moves during flare but X is already used for forward detection
-          // Z delta reaches ~-0.06 during hard flare vs ~0.001 at rest
+          // Elbow flare: Z axis — enabled but threshold based on debug data
           const hasElbowFlare =
             baselineElbowShoulderZRef.current !== null &&
             currentElbowShoulderZDiff - baselineElbowShoulderZRef.current < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
-          // DEBUG: log raw values to confirm flare = Z axis
+          // Shoulder shrug: shoulder rising relative to hip (Y axis)
+          // shoulder.y decreasing = rising in frame = shrug
+          // Using ratio relative to bodyScale so camera distance doesn't matter
+          const currentShoulderHipY = (shoulder.y - hip.y) / bodyScale;
+          const hasShoulderShrug = false; // DISABLED — testing via debug log first
+          // Will enable once we confirm the threshold from debug data
+
+          // DEBUG: log shoulder shrug values every 5s
           if (now - lastDebugLogRef.current >= 5000) {
             lastDebugLogRef.current = now;
             console.log("[FORM DEBUG]", {
+              // Shoulder shrug signals
+              shoulderHipY_ratio: currentShoulderHipY.toFixed(3),
+              shoulderHipY_delta:
+                baselineShoulderHipYRef.current !== null
+                  ? (currentShoulderHipY - baselineShoulderHipYRef.current).toFixed(3)
+                  : "no baseline",
+              shoulder_y_raw: shoulder.y.toFixed(3),
+              hip_y_raw: hip.y.toFixed(3),
+              // Existing checks for reference
               elbowHipX_delta:
                 baselineElbowHipXRef.current !== null
                   ? ((currentElbowHipX - baselineElbowHipXRef.current) / bodyScale).toFixed(3)
                   : "no baseline",
-              elbowShoulderZ_delta:
-                baselineElbowShoulderZRef.current !== null
-                  ? (currentElbowShoulderZDiff - baselineElbowShoulderZRef.current).toFixed(3)
-                  : "no baseline",
-              elbowShoulderZ_raw: currentElbowShoulderZDiff.toFixed(3),
-              elbowHipX_raw: currentElbowHipX.toFixed(3),
-              bodyScale: bodyScale.toFixed(3),
               hasElbowForward,
+              hasElbowFlare,
               angle: angle.toFixed(1),
             });
           }
 
-          // Shoulder shrug: DISABLED
-          const hasShoulderShrug = false;
-
           const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasElbowForward || hasShoulderShrug;
-          // Active checks: elbowFlare ✓  elbowForward ✓  elbowDrift ✗  shoulderShrug ✗
+          // Active checks: elbowForward ✓  elbowFlare ✓  shoulderShrug ✗ (testing)  elbowDrift ✗
 
           if (hasHighPriorityViolation) {
             formViolationRef.current = true;
@@ -451,7 +449,7 @@ export function usePoseDetection(
             let newType: FeedbackType = "neutral";
 
             if (!hasCurlStartedRef.current) {
-              newFeedback = "Stand slightly side-on and keep your lifting arm clearly visible to begin";
+              newFeedback = "Stand fully side-on, lifting arm closest to camera, arm fully extended";
               newType = "neutral";
             } else {
               if (hasElbowDrift) {
@@ -483,7 +481,6 @@ export function usePoseDetection(
                     break;
                 }
               } else if (angle >= 60 && angle < 90) {
-                // ROM suggestion — lowest priority, only shows when form is clean
                 newFeedback = "Curl a little higher for full range";
                 newType = "neutral";
               } else if (angle < 60) {
@@ -503,7 +500,7 @@ export function usePoseDetection(
           setIsDetecting(true);
         } else {
           lowConfFrameCountRef.current++;
-          setFeedback("Stand slightly side-on and keep your lifting arm clearly visible to begin");
+          setFeedback("Stand fully side-on, lifting arm closest to camera, arm fully extended");
           setFeedbackType("neutral");
           setIsDetecting(false);
         }
