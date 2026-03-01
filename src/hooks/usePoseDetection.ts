@@ -51,6 +51,7 @@ export function usePoseDetection(
   const baselineElbowShoulderZRef = useRef<number | null>(null);
   const baselineShoulderHipYRef = useRef<number | null>(null); // (shoulder.y - hip.y) / bodyScale — for shrug
   const baselineHipZRef = useRef<number | null>(null); // hip.z baseline for body momentum detection
+  const baselineWristElbowZRef = useRef<number | null>(null); // wrist.z - elbow.z baseline for pronation
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
@@ -83,6 +84,7 @@ export function usePoseDetection(
     baselineElbowShoulderZRef.current = null;
     baselineShoulderHipYRef.current = null;
     baselineHipZRef.current = null;
+    baselineWristElbowZRef.current = null;
     stableFrameCountRef.current = 0;
     lastShoulderYRef.current = null;
     lowConfFrameCountRef.current = 0;
@@ -267,6 +269,7 @@ export function usePoseDetection(
               baselineElbowShoulderZRef.current = elbow.z - shoulder.z;
               baselineShoulderHipYRef.current = (shoulder.y - hip.y) / bodyScale; // relative shrug baseline
               baselineHipZRef.current = hip.z; // hip Z baseline for momentum detection
+              baselineWristElbowZRef.current = wrist.z - elbow.z; // wrist pronation baseline
               shoulderYHistoryRef.current = [];
               calibrationStateRef.current = "calibrated";
               calibrationCompleteTimeRef.current = Date.now();
@@ -378,20 +381,18 @@ export function usePoseDetection(
             baselineShoulderYRef.current !== null && (shoulder.y - baselineShoulderYRef.current) / bodyScale < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
-          // DEBUG: log body momentum values every 5s
-          if (now - lastDebugLogRef.current >= 500) {
+          // DEBUG: log wrist pronation values — wrist inward curl = wristElbowZ_delta goes negative
+          if (now - lastDebugLogRef.current >= 2000) {
             lastDebugLogRef.current = now;
+            const currentWristElbowZ = wrist.z - elbow.z;
             console.log("[FORM DEBUG]", {
-              // Body momentum: watch hip_z_delta — forward thrust = more negative
-              hip_z_raw: hip.z.toFixed(3),
-              hip_z_delta:
-                baselineHipZRef.current !== null ? (hip.z - baselineHipZRef.current).toFixed(3) : "no baseline",
-              shoulder_z_raw: shoulder.z.toFixed(3),
-              // Hip relative to shoulder (cancels out whole-body forward lean)
-              hipShoulderZ_delta:
-                baselineHipZRef.current !== null
-                  ? (hip.z - shoulder.z - (baselineHipZRef.current - shoulder.z)).toFixed(3)
+              wristElbowZ_raw: currentWristElbowZ.toFixed(3),
+              wristElbowZ_delta:
+                baselineWristElbowZRef.current !== null
+                  ? (currentWristElbowZ - baselineWristElbowZRef.current).toFixed(3)
                   : "no baseline",
+              wrist_z_raw: wrist.z.toFixed(3),
+              elbow_z_raw: elbow.z.toFixed(3),
               angle: angle.toFixed(1),
               hasElbowForward,
               hasShoulderShrug,
