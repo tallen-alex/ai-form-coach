@@ -361,16 +361,19 @@ export function usePoseDetection(
           // Elbow flare: elbow swinging sideways away from hip line, relative to baseline
           // In side-on view elbow.x - hip.x changes when elbow flares out
           const currentElbowHipX = elbow.x - hip.x;
-          const currentElbowShoulderX = elbow.x - shoulder.x;
-          const currentElbowShoulderZ = elbow.z - shoulder.z;
           const currentElbowShoulderZDiff = elbow.z - shoulder.z;
-          const hasElbowFlare =
+
+          // Elbow forward: confirmed via debug data — forward push shows as X change (elbowHipX_delta)
+          const hasElbowForward =
             baselineElbowHipXRef.current !== null &&
             Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.08;
-          // TUNE: raise toward 0.18 if triggering on normal reps; lower toward 0.08 if not triggering
+          // TUNE: raise toward 0.12 if triggering on normal reps; lower toward 0.06 if not triggering
 
-          // DEBUG: log raw values every ~30 frames to help tune thresholds
-          // Remove this block once detection is working
+          // Elbow flare: hypothesis — sideways flare shows as Z change. Testing now.
+          // DISABLED until confirmed by debug data
+          const hasElbowFlare = false;
+
+          // DEBUG: log raw values to confirm flare = Z axis
           if (now - lastDebugLogRef.current >= 5000) {
             lastDebugLogRef.current = now;
             console.log("[FORM DEBUG]", {
@@ -378,21 +381,17 @@ export function usePoseDetection(
                 baselineElbowHipXRef.current !== null
                   ? ((currentElbowHipX - baselineElbowHipXRef.current) / bodyScale).toFixed(3)
                   : "no baseline",
-              elbowShoulderX: (currentElbowShoulderX / bodyScale).toFixed(3),
-              elbowShoulderZ: currentElbowShoulderZ.toFixed(3),
-              elbowShoulderZ_delta: baselineElbowShoulderZRef.current !== null ? (currentElbowShoulderZDiff - baselineElbowShoulderZRef.current).toFixed(3) : "no baseline",
-              baselineElbowHipX: baselineElbowHipXRef.current?.toFixed(3) ?? "null",
+              elbowShoulderZ_delta:
+                baselineElbowShoulderZRef.current !== null
+                  ? (currentElbowShoulderZDiff - baselineElbowShoulderZRef.current).toFixed(3)
+                  : "no baseline",
+              elbowShoulderZ_raw: currentElbowShoulderZDiff.toFixed(3),
+              elbowHipX_raw: currentElbowHipX.toFixed(3),
               bodyScale: bodyScale.toFixed(3),
-              hasElbowFlare,
+              hasElbowForward,
               angle: angle.toFixed(1),
             });
           }
-
-          // Elbow forward: elbow moving toward camera relative to shoulder (Z axis)
-          const hasElbowForward =
-            baselineElbowShoulderZRef.current !== null &&
-            (currentElbowShoulderZDiff - baselineElbowShoulderZRef.current) < -0.10;
-          // TUNE: less negative (e.g. -0.07) if not triggering; more negative (e.g. -0.15) if too sensitive
 
           // Shoulder shrug: DISABLED
           const hasShoulderShrug = false;
