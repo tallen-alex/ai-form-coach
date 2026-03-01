@@ -1,4 +1,3 @@
-// @hmr-reset v4
 import { useRef, useEffect, useState, useCallback } from "react";
 import type { FeedbackType } from "@/components/FeedbackCard";
 
@@ -369,6 +368,7 @@ export function usePoseDetection(
           // DEBUG: log raw values every ~30 frames to help tune thresholds
           // Remove this block once detection is working
           if (now - lastDebugLogRef.current >= 5000) {
+            lastDebugLogRef.current = now;
             console.log("[FORM DEBUG]", {
               elbowHipX_delta:
                 baselineElbowHipXRef.current !== null
