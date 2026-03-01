@@ -359,8 +359,8 @@ export function usePoseDetection(
           // Elbow forward: X axis confirmed by debug data
           const hasElbowForward =
             baselineElbowHipXRef.current !== null &&
-            Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.08;
-          // TUNE: raise toward 0.12 if triggering on normal reps
+            Math.abs(currentElbowHipX - baselineElbowHipXRef.current) / bodyScale > 0.12;
+          // TUNE: raise toward 0.16 if still triggering on normal reps; lower toward 0.09 if not triggering on forward push
 
           // Elbow flare: Z axis — enabled but threshold based on debug data
           const hasElbowFlare =
