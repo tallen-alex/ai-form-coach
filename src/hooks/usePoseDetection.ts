@@ -379,7 +379,7 @@ export function usePoseDetection(
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
           // DEBUG: log body momentum values every 5s
-          if (now - lastDebugLogRef.current >= 5000) {
+          if (now - lastDebugLogRef.current >= 500) {
             lastDebugLogRef.current = now;
             console.log("[FORM DEBUG]", {
               // Body momentum: watch hip_z_delta — forward thrust = more negative
