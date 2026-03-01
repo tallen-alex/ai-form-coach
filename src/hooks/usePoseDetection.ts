@@ -13,11 +13,7 @@ interface PoseDetectionResult {
 
 type CalibrationState = "uncalibrated" | "calibrating" | "calibrated" | "recalibrating";
 
-function angleBetween(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  c: { x: number; y: number }
-): number {
+function angleBetween(a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): number {
   const ab = { x: a.x - b.x, y: a.y - b.y };
   const cb = { x: c.x - b.x, y: c.y - b.y };
   const dot = ab.x * cb.x + ab.y * cb.y;
@@ -32,7 +28,7 @@ export function usePoseDetection(
   videoRef: React.RefObject<HTMLVideoElement>,
   canvasRef: React.RefObject<HTMLCanvasElement>,
   selectedExerciseId: string | null,
-  showOverlay: boolean = true
+  showOverlay: boolean = true,
 ): PoseDetectionResult {
   const [reps, setReps] = useState(0);
   const [feedback, setFeedback] = useState("Position yourself in frame");
@@ -147,8 +143,7 @@ export function usePoseDetection(
       if (cancelled) return;
 
       const pose = new PoseClass({
-        locateFile: (file: string) =>
-          `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
       });
 
       pose.setOptions({
@@ -195,7 +190,7 @@ export function usePoseDetection(
             shoulder.visibility ?? 0,
             elbow.visibility ?? 0,
             wrist.visibility ?? 0,
-            hip.visibility ?? 0
+            hip.visibility ?? 0,
           );
 
           const bodyScale = Math.abs(shoulder.y - hip.y) || 0.2;
@@ -232,7 +227,8 @@ export function usePoseDetection(
 
             const allHighConf = minVis > 0.7;
             const armExtended = angle > 150;
-            const shoulderStable = lastShoulderYRef.current === null ||
+            const shoulderStable =
+              lastShoulderYRef.current === null ||
               Math.abs(shoulder.y - lastShoulderYRef.current) < SHOULDER_STABILITY_THRESHOLD;
 
             // Side-on orientation gate: in true side-on, the two shoulders have very
