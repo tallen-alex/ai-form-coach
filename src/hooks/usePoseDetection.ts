@@ -366,7 +366,7 @@ export function usePoseDetection(
 
           // DEBUG: log raw values every ~30 frames to help tune thresholds
           // Remove this block once detection is working
-          if (Math.floor(now / 500) % 2 === 0) {
+          if (Math.floor(now / 2000) % 2 === 0) {
             console.log("[FORM DEBUG]", {
               elbowHipX_delta:
                 baselineElbowHipXRef.current !== null
