@@ -320,39 +320,30 @@ export function usePoseDetection(
           hasCurlStartedRef.current = true;
         }
 
+        // ---- VIOLATION CHECKS ----
+        // All disabled — enable and test one at a time
+
         // 1. Elbow forward: elbow drifting toward camera relative to shoulder
-        //    Side-on view: this is the primary cheat — elbow swings forward off body
         const currentElbowShoulderZ = elbow.z - shoulder.z;
-        const hasElbowForward =
-          baselineElbowShoulderZRef.current !== null &&
-          (currentElbowShoulderZ - baselineElbowShoulderZRef.current) < -0.10;
-        // TUNE: less negative (e.g. -0.07) if not triggering; more negative (e.g. -0.15) if too sensitive
+        const hasElbowForward = false; // DISABLED
+        void currentElbowShoulderZ; // suppress unused warning
 
         // 2. Shoulder shrug: shoulder rising relative to hip
-        //    Ratio-based so standing height shift doesn't matter
         const currentShoulderHipY = (shoulder.y - hip.y) / bodyScale;
-        const hasShoulderShrug =
-          baselineShoulderHipYRef.current !== null &&
-          (currentShoulderHipY - baselineShoulderHipYRef.current) > 0.08;
-        // TUNE: raise toward 0.12 if triggering on normal movement
-        // Note: shoulder rising = shoulder.y decreasing = ratio increases (less negative) = positive delta
+        const hasShoulderShrug = false; // DISABLED
+        void currentShoulderHipY;
 
-        // 3. Body momentum: hip thrusting forward relative to shoulder (torso lean back to swing weight)
+        // 3. Body momentum: hip thrusting forward relative to shoulder
         const currentHipShoulderZ = hip.z - shoulder.z;
-        const hasBodyMomentum =
-          baselineHipShoulderZRef.current !== null &&
-          (currentHipShoulderZ - baselineHipShoulderZRef.current) < -0.10;
-        // TUNE: less negative (e.g. -0.07) if not triggering; more negative (e.g. -0.15) if too sensitive
+        const hasBodyMomentum = false; // DISABLED
+        void currentHipShoulderZ;
 
         // 4. Wrist deviation: wrist rotating away from neutral relative to elbow
         const currentWristElbowZ = wrist.z - elbow.z;
-        const hasWristDeviation =
-          baselineWristElbowZRef.current !== null &&
-          Math.abs(currentWristElbowZ - baselineWristElbowZRef.current) > 0.08;
-        // TUNE: raise toward 0.12 if triggering on normal curling motion
+        const hasWristDeviation = false; // DISABLED
+        void currentWristElbowZ;
 
-        // 5. Elbow flare: elbow swinging out sideways away from torso
-        //    Side-on view: shows as X-axis movement of elbow relative to hip
+        // 5. Elbow flare: elbow swinging out sideways relative to hip
         const currentElbowHipX = (elbow.x - hip.x) / bodyScale;
         const hasElbowFlare =
           baselineElbowHipXRef.current !== null &&
