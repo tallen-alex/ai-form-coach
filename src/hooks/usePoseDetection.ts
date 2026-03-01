@@ -54,6 +54,7 @@ export function usePoseDetection(
   const formViolationRef = useRef(false);
   const lastViolationTypeRef = useRef<"elbowDrift" | "elbowFlare" | "elbowForward" | "shoulderShrug" | null>(null);
   const repHadViolationRef = useRef(false);
+  const lastDebugLogRef = useRef(0);
 
   // --- Calibration state machine refs ---
   const calibrationStateRef = useRef<CalibrationState>("uncalibrated");
