@@ -538,3 +538,9 @@ export function usePoseDetection(
 
   return { reps, feedback, feedbackType, isDetecting, invalidRep, validRep, calibrationCountdown };
 }
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    window.location.reload();
+  });
+}
