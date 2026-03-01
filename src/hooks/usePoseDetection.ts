@@ -387,11 +387,8 @@ export function usePoseDetection(
           // Gated to angle < 70° — only check at top where pronation matters
           // Data: normal top ~-0.012, pronated top ~+0.032 to +0.061 → threshold +0.025
           const currentWristElbowZ = wrist.z - elbow.z;
-          const hasWristPronation =
-            baselineWristElbowZRef.current !== null &&
-            angle < 70 &&
-            currentWristElbowZ - baselineWristElbowZRef.current > 0.025;
-          // TUNE: raise toward 0.04 if triggering on normal reps; lower toward 0.02 if not triggering
+          // Wrist pronation: DISABLED
+          const hasWristPronation = false;
 
           // DEBUG: log wrist pronation values — wrist inward curl = wristElbowZ_delta goes negative
           if (now - lastDebugLogRef.current >= 2000) {
