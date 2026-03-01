@@ -50,6 +50,7 @@ export function usePoseDetection(
   const baselineElbowHipXRef = useRef<number | null>(null);
   const baselineElbowShoulderZRef = useRef<number | null>(null);
   const baselineShoulderHipYRef = useRef<number | null>(null); // (shoulder.y - hip.y) / bodyScale — for shrug
+  const baselineHipZRef = useRef<number | null>(null); // hip.z baseline for body momentum detection
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
@@ -81,6 +82,7 @@ export function usePoseDetection(
     baselineElbowHipXRef.current = null;
     baselineElbowShoulderZRef.current = null;
     baselineShoulderHipYRef.current = null;
+    baselineHipZRef.current = null;
     stableFrameCountRef.current = 0;
     lastShoulderYRef.current = null;
     lowConfFrameCountRef.current = 0;
@@ -264,6 +266,7 @@ export function usePoseDetection(
               baselineElbowHipXRef.current = elbow.x - hip.x;
               baselineElbowShoulderZRef.current = elbow.z - shoulder.z;
               baselineShoulderHipYRef.current = (shoulder.y - hip.y) / bodyScale; // relative shrug baseline
+              baselineHipZRef.current = hip.z; // hip Z baseline for momentum detection
               shoulderYHistoryRef.current = [];
               calibrationStateRef.current = "calibrated";
               calibrationCompleteTimeRef.current = Date.now();
@@ -375,25 +378,23 @@ export function usePoseDetection(
             baselineShoulderYRef.current !== null && (shoulder.y - baselineShoulderYRef.current) / bodyScale < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
-          // DEBUG: log shoulder shrug values every 5s
+          // DEBUG: log body momentum values every 5s
           if (now - lastDebugLogRef.current >= 5000) {
             lastDebugLogRef.current = now;
             console.log("[FORM DEBUG]", {
-              // Shoulder shrug: watch shoulder_y_delta — shrug = more negative (shoulder rises)
-              shoulder_y_raw: shoulder.y.toFixed(3),
-              shoulder_y_delta:
-                baselineShoulderYRef.current !== null
-                  ? ((shoulder.y - baselineShoulderYRef.current) / bodyScale).toFixed(3)
+              // Body momentum: watch hip_z_delta — forward thrust = more negative
+              hip_z_raw: hip.z.toFixed(3),
+              hip_z_delta:
+                baselineHipZRef.current !== null ? (hip.z - baselineHipZRef.current).toFixed(3) : "no baseline",
+              shoulder_z_raw: shoulder.z.toFixed(3),
+              // Hip relative to shoulder (cancels out whole-body forward lean)
+              hipShoulderZ_delta:
+                baselineHipZRef.current !== null
+                  ? (hip.z - shoulder.z - (baselineHipZRef.current - shoulder.z)).toFixed(3)
                   : "no baseline",
-              hip_y_raw: hip.y.toFixed(3),
-              hip_y_delta:
-                baselineShoulderYRef.current !== null
-                  ? (hip.y - (baselineShoulderYRef.current + bodyScale)).toFixed(3)
-                  : "no baseline",
-              bodyScale: bodyScale.toFixed(3),
-              hasElbowForward,
-              hasElbowFlare,
               angle: angle.toFixed(1),
+              hasElbowForward,
+              hasShoulderShrug,
             });
           }
 
