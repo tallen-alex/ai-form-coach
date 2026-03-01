@@ -1,4 +1,4 @@
-// checking only elbow flare
+// checking only elbow flare — v2
 import { useRef, useEffect, useState, useCallback } from "react";
 import type { FeedbackType } from "@/components/FeedbackCard";
 
