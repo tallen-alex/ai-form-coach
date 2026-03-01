@@ -48,6 +48,7 @@ export function usePoseDetection(
   const baselineShoulderYRef = useRef<number | null>(null);
   const baselineElbowZDiffRef = useRef<number | null>(null);
   const baselineElbowHipXRef = useRef<number | null>(null); // elbow.x - hip.x relative baseline for flare
+  const baselineElbowShoulderZRef = useRef<number | null>(null); // elbow.z - shoulder.z baseline for forward drift
   const hasCountedFirstRepRef = useRef(false);
   const hasCurlStartedRef = useRef(false);
   const showOverlayRef = useRef(showOverlay);
@@ -77,6 +78,7 @@ export function usePoseDetection(
     baselineShoulderYRef.current = null;
     baselineElbowZDiffRef.current = null;
     baselineElbowHipXRef.current = null;
+    baselineElbowShoulderZRef.current = null;
     stableFrameCountRef.current = 0;
     lastShoulderYRef.current = null;
     lowConfFrameCountRef.current = 0;
@@ -265,6 +267,7 @@ export function usePoseDetection(
               baselineShoulderYRef.current = shoulder.y;
               baselineElbowZDiffRef.current = elbow.z - shoulder.z;
               baselineElbowHipXRef.current = elbow.x - hip.x;
+              baselineElbowShoulderZRef.current = elbow.z - shoulder.z;
               shoulderYHistoryRef.current = [];
               calibrationStateRef.current = "calibrated";
               calibrationCompleteTimeRef.current = Date.now();
@@ -376,6 +379,7 @@ export function usePoseDetection(
                   : "no baseline",
               elbowShoulderX: (currentElbowShoulderX / bodyScale).toFixed(3),
               elbowShoulderZ: currentElbowShoulderZ.toFixed(3),
+              elbowShoulderZ_delta: baselineElbowShoulderZRef.current !== null ? (currentElbowShoulderZDiff - baselineElbowShoulderZRef.current).toFixed(3) : "no baseline",
               baselineElbowHipX: baselineElbowHipXRef.current?.toFixed(3) ?? "null",
               bodyScale: bodyScale.toFixed(3),
               hasElbowFlare,
@@ -383,13 +387,18 @@ export function usePoseDetection(
             });
           }
 
-          // Elbow forward: DISABLED
-          const hasElbowForward = false;
+          // Elbow forward: elbow moving toward camera relative to shoulder (Z axis)
+          const currentElbowShoulderZDiff = elbow.z - shoulder.z;
+          const hasElbowForward =
+            baselineElbowShoulderZRef.current !== null &&
+            (currentElbowShoulderZDiff - baselineElbowShoulderZRef.current) < -0.10;
+          // TUNE: less negative (e.g. -0.07) if not triggering; more negative (e.g. -0.15) if too sensitive
 
           // Shoulder shrug: DISABLED
           const hasShoulderShrug = false;
 
           const hasHighPriorityViolation = hasElbowDrift || hasElbowFlare || hasElbowForward || hasShoulderShrug;
+          // Active checks: elbowFlare ✓  elbowForward ✓  elbowDrift ✗  shoulderShrug ✗
 
           if (hasHighPriorityViolation) {
             formViolationRef.current = true;
