@@ -1,33 +1,55 @@
 // @refresh reset
-// Force full remount after hook structure change — v5
+// Force full remount after hook structure change — v6
 import { useRef, useState } from "react";
 import { ArrowLeft, Check, Dumbbell, X } from "lucide-react";
 import ExerciseSelection, { type Exercise } from "@/components/ExerciseSelection";
+import InstructionScreen from "@/components/InstructionScreen";
 import RepCounter from "@/components/RepCounter";
 import FeedbackCard from "@/components/FeedbackCard";
 import { usePoseDetection } from "@/hooks/usePoseDetection";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 
+type Screen = "selection" | "instruction" | "workout";
+
 const Index = () => {
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  const [screen, setScreen] = useState<Screen>("selection");
   const [showOverlay, setShowOverlay] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const isWorkout = screen === "workout";
+
   const { reps, feedback, feedbackType, invalidRep, validRep, calibrationCountdown } = usePoseDetection(
     videoRef,
     canvasRef,
-    selectedExercise?.id ?? null,
+    isWorkout ? (selectedExercise?.id ?? null) : null,
     showOverlay
   );
 
-  const handleBack = () => {
-    setSelectedExercise(null);
+  const handleSelect = (exercise: Exercise) => {
+    setSelectedExercise(exercise);
+    setScreen("instruction");
   };
 
-  if (!selectedExercise) {
-    return <ExerciseSelection onSelect={setSelectedExercise} />;
+  const handleBack = () => {
+    setSelectedExercise(null);
+    setScreen("selection");
+  };
+
+  if (screen === "selection") {
+    return <ExerciseSelection onSelect={handleSelect} />;
+  }
+
+  if (screen === "instruction" && selectedExercise) {
+    return (
+      <InstructionScreen
+        exerciseName={selectedExercise.name}
+        onNext={() => setScreen("workout")}
+        onBack={handleBack}
+      />
+    );
   }
 
   return (
