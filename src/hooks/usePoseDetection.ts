@@ -368,30 +368,28 @@ export function usePoseDetection(
             currentElbowShoulderZDiff - baselineElbowShoulderZRef.current < -0.05;
           // TUNE: less negative (e.g. -0.04) if not triggering; more negative (e.g. -0.07) if too sensitive
 
-          // Shoulder shrug: shoulder rising relative to hip (Y axis)
+          // Shoulder shrug: shoulder Y alone vs baseline (hip moves with shoulder so ratio is useless)
           // shoulder.y decreasing = rising in frame = shrug
-          // Using ratio relative to bodyScale so camera distance doesn't matter
-          const currentShoulderHipY = (shoulder.y - hip.y) / bodyScale;
+          // Normalize by bodyScale so camera distance doesn't affect threshold
+          const currentShoulderY = shoulder.y;
           const hasShoulderShrug = false; // DISABLED — testing via debug log first
-          // Will enable once we confirm the threshold from debug data
 
           // DEBUG: log shoulder shrug values every 5s
           if (now - lastDebugLogRef.current >= 5000) {
             lastDebugLogRef.current = now;
             console.log("[FORM DEBUG]", {
-              // Shoulder shrug signals
-              shoulderHipY_ratio: currentShoulderHipY.toFixed(3),
-              shoulderHipY_delta:
-                baselineShoulderHipYRef.current !== null
-                  ? (currentShoulderHipY - baselineShoulderHipYRef.current).toFixed(3)
-                  : "no baseline",
+              // Shoulder shrug: watch shoulder_y_delta — shrug = more negative (shoulder rises)
               shoulder_y_raw: shoulder.y.toFixed(3),
-              hip_y_raw: hip.y.toFixed(3),
-              // Existing checks for reference
-              elbowHipX_delta:
-                baselineElbowHipXRef.current !== null
-                  ? ((currentElbowHipX - baselineElbowHipXRef.current) / bodyScale).toFixed(3)
+              shoulder_y_delta:
+                baselineShoulderYRef.current !== null
+                  ? ((shoulder.y - baselineShoulderYRef.current) / bodyScale).toFixed(3)
                   : "no baseline",
+              hip_y_raw: hip.y.toFixed(3),
+              hip_y_delta:
+                baselineShoulderYRef.current !== null
+                  ? (hip.y - (baselineShoulderYRef.current + bodyScale)).toFixed(3)
+                  : "no baseline",
+              bodyScale: bodyScale.toFixed(3),
               hasElbowForward,
               hasElbowFlare,
               angle: angle.toFixed(1),
@@ -537,10 +535,4 @@ export function usePoseDetection(
   }, [selectedExerciseId, videoRef, canvasRef, resetState, resetBaselines]);
 
   return { reps, feedback, feedbackType, isDetecting, invalidRep, validRep, calibrationCountdown };
-}
-
-if (import.meta.hot) {
-  import.meta.hot.accept(() => {
-    window.location.reload();
-  });
 }
